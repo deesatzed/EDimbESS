@@ -546,25 +546,16 @@ function renderCrossroads2D() {
           : ""
       }
       <div class="now-card-body">
-        <div class="route-header-row">
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-            <span class="now-pill">NOW</span>
-            <span style="font-size:13px;font-weight:650;color:var(--ink-secondary);">
-              Triage Gate → ${esc(targetStationsStr)} · ${esc(pkt.packet_id)}
-            </span>
-          </div>
-          <div style="display:flex;gap:6px;align-items:center;">
-            <span class="${esiBadgeClass(enc.triage_status)}">Charted ${esc(enc.triage_status)}</span>
-            <span class="badge ${pkt.ekg_chip?.status === "pending" ? "badge-gate-hold" : "badge-neutral"}">${esc(pkt.ekg_chip?.label || "EKG N/A")}</span>
-            ${clinicalGateBadge(pkt)}
-          </div>
+        <!-- 1. Patient Presentation First -->
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;">
+          <h2 class="patient-headline">
+            ${esc(enc.age_years)}y ${esc(enc.sex)} · ${esc(enc.chief_complaint)}
+            <span style="font-size:14px;font-weight:500;color:var(--ink-muted);">(${esc(enc.arrival_mode)} · waiting ${esc(enc.arrival_minutes_ago)}m)</span>
+          </h2>
+          <span class="tabular" style="font-size:13px;font-weight:700;color:var(--ink-muted);">${esc(pkt.packet_id)}</span>
         </div>
 
-        <h2 class="patient-headline">
-          ${esc(enc.age_years)}y ${esc(enc.sex)} · ${esc(enc.chief_complaint)}
-          <span style="font-size:14px;font-weight:500;color:var(--ink-muted);">(${esc(enc.arrival_mode)} · waiting ${esc(enc.arrival_minutes_ago)}m)</span>
-        </h2>
-
+        <!-- 2. Vitals Trajectory -->
         <div class="vitals-inline-row">
           ${vChip("HR", `${vit.hr} bpm`, prior?.hr, vit.hr >= 100 || vit.hr <= 50)}
           ${vChip("BP", `${vit.sbp}/${vit.dbp}`, prior ? `${prior.sbp}/${prior.dbp}` : null, vit.sbp < 95)}
@@ -574,26 +565,12 @@ function renderCrossroads2D() {
           ${(vit.gcs ?? 15) < 15 ? vChip("GCS", vit.gcs, prior?.gcs, true) : ""}
         </div>
 
+        <!-- 3. PMH & Active Meds -->
         <p class="pmh-meds-line">
           <strong>PMH:</strong> ${esc(dos.pmh_summary)} · <strong>Active Meds:</strong> ${esc(medsClean)}
         </p>
 
-        <div class="why-queued-row">
-          <span style="font-size:12px;font-weight:750;color:var(--ink-muted);">WHY QUEUED:</span>
-          ${(cr.why_queued || [])
-            .map(
-              (ch) =>
-                `<span class="why-chip ${cr.hard_trigger?.active || (pkt.sentinels || []).length > 0 ? "crit" : ""}">${esc(ch)}</span>`
-            )
-            .join("")}
-        </div>
-
-        ${
-          cr.if_missed_risk
-            ? `<p class="if-missed-line"><strong>IF MISSED:</strong> ${esc(cr.if_missed_risk)}</p>`
-            : ""
-        }
-
+        <!-- 4. Proposed Decision & Downstream Routing (Moved UP right below PMH/Meds) -->
         <div class="decision-call-box">
           <p class="decision-call-title">Decision: ${esc(cr.headline_decision)}</p>
           <div style="font-size:12px;font-weight:750;color:var(--ink-muted);margin-bottom:4px;">WHAT HAPPENS NEXT WHEN YOU APPROVE:</div>
@@ -610,6 +587,40 @@ function renderCrossroads2D() {
           </ul>
         </div>
 
+        <!-- 5. Why Queued -->
+        <div class="why-queued-row">
+          <span style="font-size:12px;font-weight:750;color:var(--ink-muted);">WHY QUEUED:</span>
+          ${(cr.why_queued || [])
+            .map(
+              (ch) =>
+                `<span class="why-chip ${cr.hard_trigger?.active || (pkt.sentinels || []).length > 0 ? "crit" : ""}">${esc(ch)}</span>`
+            )
+            .join("")}
+        </div>
+
+        <!-- 6. Route Header & Intake Baseline Badges (Moved DOWN above IF MISSED) -->
+        <div class="route-header-row" style="padding-top:4px;border-top:1px solid var(--border);">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span class="now-pill">NOW</span>
+            <span style="font-size:13px;font-weight:650;color:var(--ink-secondary);">
+              Triage Gate → ${esc(targetStationsStr)} · ${esc(pkt.packet_id)}
+            </span>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+            <span class="${esiBadgeClass(enc.triage_status)}">Charted ${esc(enc.triage_status)}</span>
+            <span class="badge ${pkt.ekg_chip?.status === "pending" ? "badge-gate-hold" : "badge-neutral"}">${esc(pkt.ekg_chip?.label || "EKG N/A")}</span>
+            ${clinicalGateBadge(pkt)}
+          </div>
+        </div>
+
+        <!-- 7. If Missed Consequence -->
+        ${
+          cr.if_missed_risk
+            ? `<p class="if-missed-line"><strong>IF MISSED:</strong> ${esc(cr.if_missed_risk)}</p>`
+            : ""
+        }
+
+        <!-- 8. Action Bar -->
         <div class="crossroads-action-bar">
           <div class="primary-btn-cluster">
             <button type="button" class="btn ${approveCls}" data-action="approve-route">
@@ -722,29 +733,32 @@ function renderSpatialOverlays() {
         : ""
     }
     <div class="xr-card-inner">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
-        <div>
-          <span class="now-pill">NOW</span>
-          <span style="font-size:12.5px;color:#CBD5E1;margin-left:6px;">
-            Triage Gate → ${esc(routes.map((r) => r.station_label).join(" + "))} · ${esc(pkt.packet_id)}
-          </span>
+      <!-- 1. Patient & Vitals First -->
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;">
+        <div style="font-size:15px;font-weight:750;">
+          [SYNTHETIC] ${esc(enc.age_years)}${esc(enc.sex)} · ${esc(enc.chief_complaint)} · HR ${esc(vit.hr)} BP ${esc(vit.sbp)}/${esc(vit.dbp)} SpO2 ${esc(vit.spo2)}% T ${esc(vit.temp_c)}
+          ${(vit.gcs ?? 15) < 15 ? `· <span style="color:#FCA5A5;">GCS ${esc(vit.gcs)}</span>` : ""}
         </div>
-        ${clinicalGateBadge(pkt, true)}
+        <span class="tabular" style="font-size:12px;color:#CBD5E1;">${esc(pkt.packet_id)}</span>
       </div>
 
-      <div style="font-size:15px;font-weight:750;">
-        [SYNTHETIC] ${esc(enc.age_years)}${esc(enc.sex)} · ${esc(enc.chief_complaint)} · HR ${esc(vit.hr)} BP ${esc(vit.sbp)}/${esc(vit.dbp)} SpO2 ${esc(vit.spo2)}% T ${esc(vit.temp_c)}
-        ${(vit.gcs ?? 15) < 15 ? `· <span style="color:#FCA5A5;">GCS ${esc(vit.gcs)}</span>` : ""}
-      </div>
-
+      <!-- 2. PMH & Active Meds -->
       <p class="xr-pmh-line">
         PMH: ${esc(dos.pmh_summary)} · Meds: ${esc((dos.current_meds || []).join(", "))}
       </p>
 
-      <p class="xr-census-line">
-        ED Census: Staffed beds ${c.bedsOpen}/${c.bedsTotal} · Hallway ${c.hallwayOpen}/${c.hallwayTotal} · Fast track ${c.fastTrackOpen}/${c.fastTrackTotal} · Waitboard ${c.waitboard}
-      </p>
+      <!-- 3. Proposed Decision & Downstream Handoffs (Moved UP right below PMH/Meds) -->
+      <div style="padding:8px 11px;border-radius:10px;background:rgba(15,23,42,0.58);border:1px solid rgba(148,163,184,0.3);">
+        <p class="xr-plan-call">Decision: ${esc(cr.headline_decision)}</p>
+        ${routes
+          .map(
+            (r) =>
+              `<p class="xr-next-green" style="${r.urgent ? "color:#FDBA74;" : ""}">→ ${esc(r.station_label)}: ${esc(r.summary)}</p>`
+          )
+          .join("")}
+      </div>
 
+      <!-- 4. Why Queued -->
       <div style="display:flex;flex-wrap:wrap;gap:5px;align-items:center;">
         <span style="font-size:12px;color:#94A3B8;font-weight:700;">WHY QUEUED:</span>
         ${(cr.why_queued || [])
@@ -755,18 +769,23 @@ function renderSpatialOverlays() {
           .join("")}
       </div>
 
+      <!-- 5. Route Header & Intake Baseline Badges -->
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;padding-top:3px;border-top:1px solid rgba(148,163,184,0.22);">
+        <div>
+          <span class="now-pill">NOW</span>
+          <span style="font-size:12px;color:#CBD5E1;margin-left:6px;">
+            Triage Gate → ${esc(routes.map((r) => r.station_label).join(" + "))} · Charted ${esc(enc.triage_status)} · ${esc(pkt.ekg_chip?.label || "EKG N/A")}
+          </span>
+        </div>
+        ${clinicalGateBadge(pkt, true)}
+      </div>
+
+      <!-- 6. If Missed Consequence -->
       ${cr.if_missed_risk ? `<p class="xr-if-wrong">IF MISSED · ${esc(cr.if_missed_risk)}</p>` : ""}
 
-      <p class="xr-plan-call">Plan? ${esc(cr.headline_decision)}</p>
-
-      <div>
-        ${routes
-          .map(
-            (r) =>
-              `<p class="xr-next-green" style="${r.urgent ? "color:#FDBA74;" : ""}">Pass → ${esc(r.station_label)}: ${esc(r.summary)}</p>`
-          )
-          .join("")}
-      </div>
+      <p class="xr-census-line">
+        ED Census: Staffed beds ${c.bedsOpen}/${c.bedsTotal} · Hallway ${c.hallwayOpen}/${c.hallwayTotal} · Fast track ${c.fastTrackOpen}/${c.fastTrackTotal} · Waitboard ${c.waitboard}
+      </p>
 
       <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;margin-top:4px;">
         <div style="display:flex;gap:7px;flex-wrap:wrap;">

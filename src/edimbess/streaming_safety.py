@@ -502,7 +502,7 @@ def _build_clinical_routing_summary(
     elif any(s["category"] == "HIGH_RISK_MECHANISM_ACTIVITY" for s in sentinels):
         hard_banner = "HARD ESCALATION — Benign-Appearing Exam with Limb / Ocular / Spine Emergency"
 
-    # 2. Plain-English WHY QUEUED chips (zero Greek letters or model jargon)
+    # 2. Plain-English WHY QUEUED chips (prioritizing concealed chart deltas before visible vitals)
     why_chips: list[str] = []
     for k_ev, lbl_ev in (
         ("d2b", "D2B eval missing"),
@@ -511,6 +511,17 @@ def _build_clinical_routing_summary(
     ):
         if evals.get(k_ev) == "missing":
             why_chips.append(lbl_ev)
+
+    for f in findings:
+        f_low = f["finding"].lower()
+        if "esbl" in f_low:
+            why_chips.append("Unreviewed ESBL resistant culture")
+        elif "glipizide" in f_low:
+            why_chips.append("Sulfonylurea hypoglycemia risk")
+        elif "hemoglobin" in f_low:
+            why_chips.append(f["finding"].split(" omitted")[0])
+        elif "wbc" in f_low or "potassium" in f_low:
+            why_chips.append(f["finding"].split(" on ")[0])
 
     for s in sentinels:
         cat = s["category"]
@@ -524,21 +535,12 @@ def _build_clinical_routing_summary(
             why_chips.append("Immunosuppressed / transplant reserve")
         elif cat == "HIGH_RISK_MECHANISM_ACTIVITY":
             why_chips.append("High-energy / surgical mechanism")
-        elif cat == "HIGH_RISK_PMH":
-            why_chips.append(s["summary"].split(";")[0])
         elif cat == "BOUNCEBACK_FREQUENT_ED":
             why_chips.append("72h bounceback / repeat ED return")
+        elif cat == "HIGH_RISK_PMH":
+            why_chips.append(s["summary"].split(";")[0])
         elif cat == "UNEXPLAINED_ABNORMAL_VS":
             why_chips.append(s["summary"].split(";")[0])
-
-    for f in findings:
-        f_low = f["finding"].lower()
-        if "esbl" in f_low:
-            why_chips.append("Unreviewed ESBL resistant culture")
-        elif "glipizide" in f_low:
-            why_chips.append("Sulfonylurea hypoglycemia risk")
-        elif "hemoglobin" in f_low:
-            why_chips.append(f["finding"].split(" omitted")[0])
 
     if ekg_chip.get("status") == "pending" and "req_ekg" not in unlocked_set:
         why_chips.append("Triage ECG pending")
@@ -557,9 +559,13 @@ def _build_clinical_routing_summary(
         if not dedup_chips:
             dedup_chips.append("Safe fast-pass — standing care already active")
 
-    # 3. Plain-English IF MISSED / IF WRONG worst-case consequence line
+    # 3. Plain-English IF MISSED / IF WRONG worst-case consequence line (covers all selected deltas)
     if_missed: str | None = None
-    if findings:
+    if len(findings) >= 2:
+        clauses = [f["finding"] for f in findings[:3]]
+        lead_actions = "; ".join(f["action"].rstrip(".") for f in findings[:2])
+        if_missed = f"{'; '.join(clauses)} — {lead_actions}."
+    elif len(findings) == 1:
         if_missed = f"{findings[0]['why_now']} ({findings[0]['action']})"
     elif sentinels:
         if_missed = sentinels[0]["clinical_why"]
