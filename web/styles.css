@@ -1,6 +1,8 @@
 /* EDimbESS Clinical Daylight & Spatial XR Stylesheet
-   Crafted for sustained ED clinical operation: warm paper surfaces, WCAG AA+ contrast,
-   tabular numerals, zero decorative slop, and crisp 1px structural borders. */
+   Supports 3 purposeful workspace modes:
+   1. Focused Action (calm, scannable Now Gate with progressive disclosure)
+   2. Full Workbench (complete 3-column clinical + statistical desk)
+   3. 3D Spatial XR (interactive Three.js WebGL + WebXR spatial cockpit) */
 
 :root {
   --bg-paper: #F2F5F8;
@@ -40,7 +42,6 @@
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 12px;
-  --shadow-card: none;
 }
 
 *,
@@ -85,87 +86,16 @@ textarea {
   font-variant-numeric: tabular-nums;
 }
 
-/* XR Blocks 3D Spatial Canvas Host */
-#xr-canvas-host {
-  position: fixed;
-  inset: 0;
-  z-index: 1;
-  pointer-events: none;
-}
-
-body.xr-spatial-mode #xr-canvas-host {
-  pointer-events: auto;
-  z-index: 25;
-}
-
-body.xr-spatial-mode #clinical-desk-shell {
-  opacity: 0.1;
-  pointer-events: none;
-}
-
-.xr-hud-bar {
-  position: fixed;
-  bottom: 16px;
-  right: 18px;
-  z-index: 90;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  background: #1C2430;
-  color: #FFFFFF;
-  border: 1px solid #334155;
-  border-radius: 999px;
-  box-shadow: 0 4px 14px rgba(28, 36, 48, 0.18);
-  font-size: 12px;
-}
-
-.xr-hud-status {
-  padding: 0 6px;
-  color: #D7E0EA;
-  font-variant-numeric: tabular-nums;
-}
-
-.xr-hud-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 12px;
-  border-radius: 999px;
-  border: 1px solid #3B5978;
-  background: #224B73;
-  color: #FFFFFF;
-  font-weight: 600;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.xr-hud-btn:hover {
-  background: #2B5E8F;
-}
-
-.xr-hud-btn[aria-pressed="true"] {
-  background: #236B42;
-  border-color: #3A8F5E;
-}
-
-/* Main Desk Shell */
-#clinical-desk-shell {
-  position: relative;
-  z-index: 5;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
-
 /* Top Operational Header */
 .top-bar {
+  position: relative;
+  z-index: 40;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
-  padding: 12px 20px;
+  gap: 12px;
+  padding: 10px 18px;
   background: var(--bg-card);
   border-bottom: 1px solid var(--border);
 }
@@ -173,19 +103,19 @@ body.xr-spatial-mode #clinical-desk-shell {
 .brand-group {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .brand-title {
   margin: 0;
-  font-size: 17px;
+  font-size: 16.5px;
   font-weight: 700;
   letter-spacing: -0.015em;
   color: var(--ink);
 }
 
 .brand-sub {
-  margin: 2px 0 0;
+  margin: 1px 0 0;
   font-size: 12px;
   color: var(--ink-muted);
 }
@@ -194,13 +124,49 @@ body.xr-spatial-mode #clinical-desk-shell {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 4px 9px;
+  padding: 4px 8px;
   border-radius: 999px;
   border: 1px solid var(--border-strong);
   background: var(--bg-subtle);
   color: var(--ink-secondary);
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
+}
+
+/* Primary Workspace Mode Tabs */
+.mode-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+}
+
+.mode-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-secondary);
+  font-size: 12.5px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.mode-tab:hover {
+  color: var(--ink);
+  background: var(--bg-recessed);
+}
+
+.mode-tab[aria-selected="true"] {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #FFFFFF;
 }
 
 /* Capacity Controls */
@@ -208,14 +174,14 @@ body.xr-spatial-mode #clinical-desk-shell {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .cap-unit {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
+  gap: 5px;
+  padding: 3px 7px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--bg-subtle);
@@ -231,13 +197,13 @@ body.xr-spatial-mode #clinical-desk-shell {
 .cap-val {
   font-weight: 700;
   color: var(--ink);
-  min-width: 34px;
+  min-width: 30px;
   text-align: center;
 }
 
 .cap-step {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   padding: 0;
   border: 1px solid var(--border-strong);
   border-radius: 4px;
@@ -256,7 +222,7 @@ body.xr-spatial-mode #clinical-desk-shell {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .btn {
@@ -264,7 +230,7 @@ body.xr-spatial-mode #clinical-desk-shell {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 7px 12px;
+  padding: 6px 11px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-strong);
   background: var(--bg-card);
@@ -303,8 +269,8 @@ body.xr-spatial-mode #clinical-desk-shell {
 }
 
 .btn-safe:hover:not(:disabled) {
-  background: #164225;
-  border-color: #164225;
+  background: #143F24;
+  border-color: #143F24;
 }
 
 .btn-hold {
@@ -325,34 +291,59 @@ body.xr-spatial-mode #clinical-desk-shell {
 }
 
 .btn-crit:hover:not(:disabled) {
-  background: #6F1612;
-  border-color: #6F1612;
+  background: #6E1511;
+  border-color: #6E1511;
 }
 
-/* Three-Pane Clinical Workbench */
-.workbench-grid {
+/* View Mode Layout Switching */
+body[data-view-mode="spatial"] #clinical-desk-shell {
+  display: none;
+}
+
+body:not([data-view-mode="spatial"]) #spatial-stage-wrap {
+  display: none !important;
+}
+
+#clinical-desk-shell {
+  position: relative;
+  z-index: 5;
   flex: 1;
+}
+
+.workbench-grid {
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr) 360px;
+  grid-template-columns: 310px minmax(0, 1fr) 355px;
   gap: 16px;
-  padding: 16px 20px 72px;
+  padding: 16px 20px 44px;
   max-width: 1760px;
   width: 100%;
   margin: 0 auto;
   align-items: start;
 }
 
-@media (max-width: 1360px) {
-  .workbench-grid {
+/* Focused Action Mode: Calm 2-Column Layout without right wall */
+body[data-view-mode="focused"] .workbench-grid {
+  grid-template-columns: 300px minmax(0, 920px);
+  justify-content: center;
+  gap: 20px;
+}
+
+body[data-view-mode="focused"] .safety-rail {
+  display: none;
+}
+
+@media (max-width: 1320px) {
+  body[data-view-mode="workbench"] .workbench-grid {
     grid-template-columns: 290px minmax(0, 1fr);
   }
-  .safety-rail {
+  body[data-view-mode="workbench"] .safety-rail {
     grid-column: 1 / -1;
   }
 }
 
-@media (max-width: 920px) {
-  .workbench-grid {
+@media (max-width: 900px) {
+  .workbench-grid,
+  body[data-view-mode="focused"] .workbench-grid {
     grid-template-columns: 1fr;
     padding: 12px;
   }
@@ -362,20 +353,19 @@ body.xr-spatial-mode #clinical-desk-shell {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-card);
 }
 
 /* Queue Rail */
 .queue-rail {
   display: flex;
   flex-direction: column;
-  max-height: calc(100vh - 104px);
+  max-height: calc(100vh - 96px);
   position: sticky;
-  top: 16px;
+  top: 14px;
 }
 
 .rail-header {
-  padding: 14px 14px 10px;
+  padding: 13px 14px 10px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -402,16 +392,16 @@ body.xr-spatial-mode #clinical-desk-shell {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
-  margin-top: 10px;
+  margin-top: 9px;
 }
 
 .filter-chip {
-  padding: 4px 8px;
+  padding: 3px 8px;
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--bg-subtle);
   color: var(--ink-secondary);
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   font-variant-numeric: tabular-nums;
@@ -434,7 +424,7 @@ body.xr-spatial-mode #clinical-desk-shell {
 .queue-item {
   width: 100%;
   text-align: left;
-  padding: 10px 11px;
+  padding: 9px 11px;
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
   background: var(--bg-card);
@@ -472,7 +462,7 @@ body.xr-spatial-mode #clinical-desk-shell {
 }
 
 .q-chief {
-  margin: 5px 0 7px;
+  margin: 4px 0 6px;
   font-size: 13px;
   font-weight: 600;
   color: var(--ink);
@@ -535,6 +525,132 @@ body.xr-spatial-mode #clinical-desk-shell {
   gap: 14px;
 }
 
+/* Focused Action Mode Specific Surfaces */
+.focused-hero-card {
+  padding: 18px 20px;
+}
+
+.focused-vitals-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.vital-pill {
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+  font-size: 12.5px;
+  color: var(--ink);
+}
+
+.vital-pill.abn {
+  background: var(--bg-crit);
+  border-color: var(--border-crit);
+  color: var(--ink-crit);
+  font-weight: 700;
+}
+
+.focused-checklist-card {
+  padding: 18px 20px;
+}
+
+.action-item-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.action-item-row {
+  padding: 11px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.action-item-row.urgent {
+  background: var(--bg-crit);
+  border-color: var(--border-crit);
+}
+
+.action-item-row.attention {
+  background: #FFFDF8;
+  border-color: var(--border-hold);
+}
+
+.action-item-main {
+  flex: 1;
+}
+
+.action-item-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.action-item-sub {
+  margin: 3px 0 0;
+  font-size: 12.5px;
+  color: var(--ink-secondary);
+}
+
+/* Progressive Disclosure Accordion Drawers */
+.expand-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+details.expand-drawer {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+details.expand-drawer > summary {
+  list-style: none;
+  padding: 12px 16px;
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-weight: 650;
+  font-size: 13.5px;
+}
+
+details.expand-drawer > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.expand-drawer > summary:hover {
+  background: var(--bg-subtle);
+  border-radius: var(--radius-md);
+}
+
+details.expand-drawer[open] > summary {
+  border-bottom: 1px solid var(--border);
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.drawer-content {
+  padding: 14px 16px;
+}
+
+/* Full Workbench Cards */
 .encounter-header-card {
   padding: 16px 18px;
 }
@@ -793,7 +909,6 @@ body.xr-spatial-mode #clinical-desk-shell {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-/* Sub-blocks inside Delta: Safety-Net & Ask Patient Next */
 .delta-split {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -825,7 +940,6 @@ body.xr-spatial-mode #clinical-desk-shell {
   gap: 5px;
 }
 
-/* SPOT DR 6-Cell Cognitive Strip */
 .spotd-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -1008,7 +1122,7 @@ body.xr-spatial-mode #clinical-desk-shell {
   flex-direction: column;
   gap: 14px;
   position: sticky;
-  top: 16px;
+  top: 14px;
 }
 
 .metric-table {
@@ -1044,6 +1158,87 @@ body.xr-spatial-mode #clinical-desk-shell {
   color: var(--ink-secondary);
 }
 
+/* 3D Spatial XR Stage */
+#spatial-stage-wrap {
+  position: relative;
+  width: 100%;
+  height: calc(100vh - 64px);
+  background: #0F1722;
+  overflow: hidden;
+}
+
+#xr-canvas-host {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+}
+
+#xr-canvas-host:active {
+  cursor: grabbing;
+}
+
+#xr-canvas-host canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.spatial-overlay-card {
+  position: absolute;
+  top: 16px;
+  left: 18px;
+  z-index: 20;
+  width: min(440px, calc(100vw - 36px));
+  padding: 14px 16px;
+  background: var(--bg-card);
+  border: 2px solid var(--ink);
+  border-radius: var(--radius-lg);
+  color: var(--ink);
+}
+
+.spatial-legend-bar {
+  position: absolute;
+  bottom: 16px;
+  left: 18px;
+  right: 18px;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 14px;
+  background: var(--bg-card);
+  border: 2px solid var(--ink);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+}
+
+.legend-items {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.dot-crit { background: #C9352B; }
+.dot-hold { background: #D48B08; }
+.dot-safe { background: #218348; }
+
+.spatial-hint {
+  color: var(--ink-muted);
+  margin-left: 8px;
+}
+
 /* Native Dialog Modals */
 dialog.clinical-dialog {
   width: min(860px, 94vw);
@@ -1057,7 +1252,7 @@ dialog.clinical-dialog {
 }
 
 dialog.clinical-dialog::backdrop {
-  background: rgba(28, 36, 48, 0.42);
+  background: rgba(24, 34, 47, 0.45);
 }
 
 .dialog-head {
@@ -1095,12 +1290,12 @@ dialog.clinical-dialog::backdrop {
 .toast-banner {
   position: fixed;
   bottom: 16px;
-  left: 20px;
+  right: 20px;
   z-index: 95;
   padding: 9px 14px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-strong);
-  background: #1C2430;
+  background: #18222F;
   color: #FFFFFF;
   font-size: 12.5px;
   font-weight: 600;

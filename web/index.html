@@ -5,15 +5,15 @@
   <title>EDimbESS · Provider-in-the-Middle ED Triage XR &amp; Statistical Safety Engine</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="/styles.css" />
-  <!-- XR Blocks Spatial Runtime Import Map (xrblocks@0.21.1, three@0.184.0) -->
+  <!-- Three.js r184 + XR Blocks v0.21.1 Import Map -->
   <script type="importmap">
   {
     "imports": {
       "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.js",
       "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/",
-      "@pmndrs/uikit": "https://cdn.jsdelivr.net/npm/@pmndrs/uikit@1.0.64/dist/uikit.js",
-      "@pmndrs/uikit-lucide": "https://cdn.jsdelivr.net/npm/@pmndrs/uikit-lucide@1.0.51/dist/uikit-lucide.js",
-      "yoga-layout": "https://cdn.jsdelivr.net/npm/yoga-layout@3.2.1/dist/src/index.js",
+      "@pmndrs/uikit": "https://cdn.jsdelivr.net/npm/@pmndrs/uikit@1.0.64/+esm",
+      "@pmndrs/uikit-lucide": "https://cdn.jsdelivr.net/npm/@pmndrs/uikit-lucide@1.0.51/+esm",
+      "yoga-layout": "https://cdn.jsdelivr.net/npm/yoga-layout@3.2.1/+esm",
       "lit": "https://cdn.jsdelivr.net/npm/lit@3.3.1/+esm",
       "lit/": "https://cdn.jsdelivr.net/npm/lit@3.3.1/",
       "xrblocks": "https://cdn.jsdelivr.net/npm/xrblocks@0.21.1/build/xrblocks.js",
@@ -22,58 +22,79 @@
   }
   </script>
 </head>
-<body>
-  <!-- WebXR / Three.js Spatial Canvas -->
-  <div id="xr-canvas-host" aria-hidden="true"></div>
+<body data-view-mode="focused">
+  <!-- Top Operational Header (Always accessible across Focused, Workbench, and 3D Spatial tabs) -->
+  <header class="top-bar">
+    <div class="brand-group">
+      <div>
+        <h1 class="brand-title">ED Triage · PITM Safety Engine</h1>
+        <p class="brand-sub">Provider-in-the-Middle Now Gate · Conformal Safe-Gate · Martingale VOI · Orthogonal Delta</p>
+      </div>
+      <span class="research-pill" title="Research and simulation environment only. Never enter real patient identifiers.">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+        </svg>
+        Research Only · Zero PHI
+      </span>
+    </div>
 
-  <!-- Clinical Daylight Workbench -->
+    <!-- Primary Workspace Mode Tabs -->
+    <nav class="mode-tabs" role="tablist" aria-label="Workspace view mode">
+      <button type="button" role="tab" class="mode-tab" data-view-tab="focused" aria-selected="true">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <polyline points="9 11 12 14 22 4"></polyline>
+          <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+        </svg>
+        Focused Action
+      </button>
+      <button type="button" role="tab" class="mode-tab" data-view-tab="workbench" aria-selected="false">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <rect x="3" y="3" width="7" height="18" rx="1"></rect>
+          <rect x="14" y="3" width="7" height="8" rx="1"></rect>
+          <rect x="14" y="15" width="7" height="6" rx="1"></rect>
+        </svg>
+        Full Workbench
+      </button>
+      <button type="button" role="tab" class="mode-tab" data-view-tab="spatial" aria-selected="false">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+          <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+          <line x1="12" y1="22.08" x2="12" y2="12"></line>
+        </svg>
+        3D Spatial XR
+      </button>
+    </nav>
+
+    <div class="capacity-strip" id="capacity-strip" aria-label="ED treatment space capacity controls"></div>
+
+    <div class="toolbar-actions">
+      <button type="button" class="btn" id="btn-open-intake">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="17 8 12 3 7 8"></polyline>
+          <line x1="12" y1="3" x2="12" y2="15"></line>
+        </svg>
+        Intake
+      </button>
+      <button type="button" class="btn" id="btn-open-ledger">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
+        </svg>
+        Ledger (<span id="ledger-count" class="tabular">0</span>)
+      </button>
+      <button type="button" class="btn btn-primary" id="btn-open-audit">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+        </svg>
+        Audit Receipt
+      </button>
+    </div>
+  </header>
+
+  <!-- 2D Clinical Views (Focused Action & Full Workbench) -->
   <div id="clinical-desk-shell">
-    <header class="top-bar">
-      <div class="brand-group">
-        <div>
-          <h1 class="brand-title">ED Triage · PITM Safety Engine</h1>
-          <p class="brand-sub">Provider-in-the-Middle Now Gate · Conformal Safe-Gate · Martingale VOI · Orthogonal Delta</p>
-        </div>
-        <span class="research-pill" title="Research and simulation environment only. Never enter real patient identifiers.">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-          </svg>
-          Research Only · Synthetic syn-ED · Zero PHI
-        </span>
-      </div>
-
-      <div class="capacity-strip" id="capacity-strip" aria-label="ED treatment space capacity controls">
-        <!-- Populated dynamically from /api/packets capacity -->
-      </div>
-
-      <div class="toolbar-actions">
-        <button type="button" class="btn" id="btn-open-intake">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-            <polyline points="17 8 12 3 7 8"></polyline>
-            <line x1="12" y1="3" x2="12" y2="15"></line>
-          </svg>
-          Intake Packet
-        </button>
-        <button type="button" class="btn" id="btn-open-ledger">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-            <polyline points="14 2 14 8 20 8"></polyline>
-            <line x1="8" y1="13" x2="16" y2="13"></line>
-            <line x1="8" y1="17" x2="16" y2="17"></line>
-          </svg>
-          Shadow Ledger (<span id="ledger-count" class="tabular">0</span>)
-        </button>
-        <button type="button" class="btn btn-primary" id="btn-open-audit">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
-          </svg>
-          Statistical Audit Receipt
-        </button>
-      </div>
-    </header>
-
-    <main class="workbench-grid">
+    <main class="workbench-grid" id="workbench-grid">
       <!-- Left Rail: Arrival Queue -->
       <aside class="panel-surface queue-rail" aria-label="Post-triage ED arrival queue">
         <div class="rail-header">
@@ -92,28 +113,35 @@
         <div class="queue-list" id="queue-list"></div>
       </aside>
 
-      <!-- Center Column: The Now Gate -->
-      <section class="now-gate-col" id="now-gate-root" aria-label="Active patient Now Gate">
-        <!-- Populated dynamically by app.js -->
-      </section>
+      <!-- Center Column: Focused Action Gate OR Full Workbench Gate -->
+      <section class="now-gate-col" id="now-gate-root" aria-label="Active patient Now Gate"></section>
 
-      <!-- Right Rail: Quantitative Statistical Safety & VOI Diagnostics -->
-      <aside class="panel-surface safety-rail" id="safety-rail-root" aria-label="Calibrated risk, conformal bounds, and VOI channel routing">
-        <!-- Populated dynamically by app.js -->
-      </aside>
+      <!-- Right Rail: Quantitative Statistical Safety & VOI (Visible in Full Workbench tab) -->
+      <aside class="panel-surface safety-rail" id="safety-rail-root" aria-label="Calibrated risk, conformal bounds, and VOI channel routing"></aside>
     </main>
   </div>
 
-  <!-- Spatial XR Mode Bar -->
-  <div class="xr-hud-bar">
-    <span class="xr-hud-status" id="xr-engine-status">Calibrating safety engine…</span>
-    <button type="button" class="xr-hud-btn" id="btn-toggle-spatial" aria-pressed="false">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-      </svg>
-      <span id="spatial-btn-label">3D Spatial XR</span>
-    </button>
-  </div>
+  <!-- 3D Spatial XR Stage (Interactive Three.js WebGL Cockpit + WebXR / XR Blocks Bridge) -->
+  <section id="spatial-stage-wrap" aria-label="3D Spatial Triage Stage" hidden>
+    <div id="xr-canvas-host"></div>
+
+    <!-- Spatial Overlay HUD: Active Patient Action Card -->
+    <div class="spatial-overlay-card" id="spatial-patient-hud"></div>
+
+    <!-- Spatial Overlay Legend & Controls -->
+    <div class="spatial-legend-bar">
+      <div class="legend-items">
+        <span class="legend-dot dot-crit"></span><span>Sentinel Escalation</span>
+        <span class="legend-dot dot-hold"></span><span>Hold · VOI Pre-Fetch</span>
+        <span class="legend-dot dot-safe"></span><span>Conformal Certified Safe</span>
+        <span class="spatial-hint">Drag to orbit · Scroll to zoom · Click any 3D patient totem or center bed pillar</span>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button type="button" class="btn" id="btn-reset-camera">Reset Camera</button>
+        <button type="button" class="btn btn-primary" id="btn-enter-webxr" hidden>Enter WebXR Headset</button>
+      </div>
+    </div>
+  </section>
 
   <!-- Toast Feedback -->
   <div class="toast-banner" id="toast-banner" role="status" aria-live="polite" hidden></div>
@@ -143,9 +171,7 @@
       <h2 class="dialog-title">SHA-256 Hash-Chained PITM Ledger &amp; Neyman Shadow Audit</h2>
       <button type="button" class="btn" data-close-dialog="dialog-ledger">Close</button>
     </div>
-    <div class="dialog-body" id="ledger-dialog-body">
-      Loading ledger…
-    </div>
+    <div class="dialog-body" id="ledger-dialog-body">Loading ledger…</div>
   </dialog>
 
   <!-- Dialog 3: Statistical Safety Engine Full Verification Receipt -->
@@ -154,9 +180,7 @@
       <h2 class="dialog-title">EDimbESS Statistical Safety Engine — Verification Receipt</h2>
       <button type="button" class="btn" data-close-dialog="dialog-audit">Close</button>
     </div>
-    <div class="dialog-body" id="audit-dialog-body">
-      Running or retrieving statistical verification audit…
-    </div>
+    <div class="dialog-body" id="audit-dialog-body">Running or retrieving statistical verification audit…</div>
   </dialog>
 
   <script type="module" src="/app.js"></script>

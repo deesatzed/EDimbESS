@@ -1,7 +1,8 @@
 /**
- * EDimbESS Frontend Controller & XR Blocks Spatial Script (xrblocks@0.21.1 / three@0.184.0)
- * Integrates Provider-in-the-Middle 5-Decision Now Gate with Conformal Safe-Gate,
- * Martingale 9-Node Gauss-Hermite VOI Channel Pre-Fetching, Orthogonal Delta, and Neyman Ledger Audit.
+ * EDimbESS Frontend Controller:
+ * - Tab 1: Focused Action (calm, scannable key-actions view with progressive disclosure)
+ * - Tab 2: Full Workbench (complete 3-column clinical + statistical desk)
+ * - Tab 3: 3D Spatial XR (interactive Three.js r184 WebGL cockpit + XR Blocks / WebXR bridge)
  */
 
 const DECISION_TITLES = {
@@ -26,9 +27,12 @@ const SAMPLE_INTAKE_PACKET = {
     arrival_mode: "walk-in",
     triage_status: "ESI-3",
     chief_complaint: "Lightheadedness after standing",
-    nurse_hx_summary: "Mild lightheadedness this afternoon, looks comfortable at triage. Denies chest pain. Denies blood thinners.",
+    nurse_hx_summary:
+      "Mild lightheadedness this afternoon, looks comfortable at triage. Denies chest pain. Denies blood thinners.",
     vitals: { hr: 98, sbp: 112, dbp: 68, rr: 16, spo2: 98, temp_c: 36.9 },
-    prior_vitals: [{ when: "18m ago (door)", hr: 90, sbp: 122, dbp: 72, rr: 16, spo2: 98, temp_c: 36.8 }],
+    prior_vitals: [
+      { when: "18m ago (door)", hr: 90, sbp: 122, dbp: 72, rr: 16, spo2: 98, temp_c: 36.8 },
+    ],
     ekg: { status: "missing", summary: null },
     evals: { trauma: "not_indicated", neuro: "not_indicated", d2b: "not_indicated" },
     wr_orders: { started: false, sets: [], addons: [] },
@@ -52,6 +56,7 @@ const SAMPLE_INTAKE_PACKET = {
 };
 
 const state = {
+  viewMode: "focused", // "focused" | "workbench" | "spatial"
   capacity: {
     bedsOpen: 3,
     bedsTotal: 18,
@@ -65,10 +70,9 @@ const state = {
   selectedPacketId: null,
   activeFilter: "ALL",
   reviewedPacketIds: new Set(),
-  draftDecisions: {}, // { [packetId]: { [decType]: { action, overrideReason, finalText } } }
+  draftDecisions: {},
   ledgerCount: 0,
-  spatialMode: false,
-  xrInstance: null,
+  spatialStage: null,
 };
 
 function esc(val) {
@@ -77,6 +81,10 @@ function esc(val) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+}
+
+function pct(v) {
+  return `${((Number(v) || 0) * 100).toFixed(1)}%`;
 }
 
 function iconSvg(kind) {
@@ -137,7 +145,166 @@ function activePacket() {
 }
 
 /* --------------------------------------------------------------------------
- * Render Top Capacity Strip
+ * Shared Reusable Builders (Decisions Rows, Dossier Summary, Safety Tables)
+ * -------------------------------------------------------------------------- */
+function buildDecisionRowsHtml(pkt) {
+  const drafts = ensureDraftForPacket(pkt);
+  return (pkt.recommendations || [])
+    .map((rec) => {
+      const d = drafts[rec.type] || { action: "accept", overrideReason: "", finalText: rec.proposal };
+      return `
+        <div class="dec-row ${rec.alert ? "dec-alert" : ""}">
+          <div class="dec-main">
+            <div class="dec-copy">
+              <p class="dec-proposal">${esc(DECISION_TITLES[rec.type] || rec.type)}: ${esc(rec.proposal)}</p>
+              <p class="dec-rationale">${esc(rec.rationale)}</p>
+            </div>
+            <div class="dec-controls" role="group" aria-label="${esc(DECISION_TITLES[rec.type] || rec.type)} action">
+              <button type="button" class="dec-act-btn" data-dec-type="${esc(rec.type)}" data-act="accept" aria-pressed="${d.action === "accept"}">Accept</button>
+              <button type="button" class="dec-act-btn" data-dec-type="${esc(rec.type)}" data-act="change" aria-pressed="${d.action === "change"}">Change</button>
+              <button type="button" class="dec-act-btn" data-dec-type="${esc(rec.type)}" data-act="decline" aria-pressed="${d.action === "decline"}">Decline</button>
+            </div>
+          </div>
+          ${
+            d.action === "change"
+              ? `
+            <div class="override-editor">
+              <input type="text" class="override-input" data-override-final="${esc(rec.type)}" value="${esc(d.finalText)}" placeholder="Specify modified clinical decision…" aria-label="Modified clinical decision" />
+              <input type="text" class="override-input" data-override-reason="${esc(rec.type)}" value="${esc(d.overrideReason)}" placeholder="Override rationale (minimum 8 characters required)…" aria-label="Override rationale" />
+            </div>
+          `
+              : ""
+          }
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function buildGateActionButtons(pkt) {
+  const sg = pkt.safe_gate || {};
+  const vr = pkt.voi_routing || {};
+  const gateState = sg.gate_state || "SENTINEL_ESCALATION";
+
+  if (sg.allow_one_pinch_routine) {
+    return `
+      <button type="button" class="btn btn-safe" data-action="fastpass-routine">
+        ${iconSvg("check")} Accept Routine — Certified Safe (1-Pinch)
+      </button>
+    `;
+  }
+  if (gateState === "AMBIGUOUS_HOLD_VOI" && (vr.auto_triggered_channels || []).length > 0) {
+    return `
+      <button type="button" class="btn btn-hold" data-action="prefetch-voi">
+        ${iconSvg("hold")} Pre-Fetch ${vr.auto_triggered_channels.length} High-VOI Channel(s)
+      </button>
+      <button type="button" class="btn btn-primary" data-action="accept-all-reviewed">
+        Commit Recommended Actions
+      </button>
+    `;
+  }
+  return `
+    <button type="button" class="btn btn-crit" data-action="accept-all-reviewed">
+      Commit Escalated Actions
+    </button>
+  `;
+}
+
+function buildSpotdHtml(sw) {
+  return `
+    <div class="spotd-grid" aria-label="Satz-EM SPOT DR cognitive checklist">
+      ${(sw.spotd || [])
+        .map(
+          (cell) => `
+        <div class="spotd-cell ${cell.chart ? "chart-backed" : ""}">
+          <div class="spotd-head">
+            <span class="spotd-letter">${esc(cell.letter)}</span>
+            <span>${esc(cell.label)}</span>
+          </div>
+          <div class="spotd-phrase">${esc(cell.phrase)}</div>
+        </div>
+      `
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function buildSafetyMetricsInnerHtml(pkt) {
+  const sg = pkt.safe_gate || {};
+  const vr = pkt.voi_routing || {};
+  const channels = vr.channels || [];
+
+  return `
+    <div style="margin-bottom:14px;">
+      <h3 class="section-heading" style="margin-bottom:8px;">
+        <span>Calibrated Risk &amp; Conformal Receipt</span>
+        ${vr.cfbh_alert_certified ? `<span class="badge badge-gate-crit">CfBH Alert Certified</span>` : `<span class="badge badge-neutral">Sub-CfBH</span>`}
+      </h3>
+      <table class="metric-table">
+        <tbody>
+          <tr><th>Stage-1 Door Posterior p₁(x)</th><td class="num">${pct(sg.p1_calibrated)}</td></tr>
+          <tr><th>Framing-Blind Objective p₁,blind(x)</th><td class="num">${pct(sg.p1_framing_blind)}</td></tr>
+          <tr><th>Stage-2 Full Chart Posterior p₂(x)</th><td class="num">${pct(sg.p2_calibrated)}</td></tr>
+          <tr><th>Bayes Escalation Threshold τ*</th><td class="num">${pct(sg.tau_bayes_triage)}</td></tr>
+          <tr><th>Capacity-Adjusted Space τ*space</th><td class="num">${pct(sg.tau_space_capacity_adjusted)}</td></tr>
+          <tr><th>Conformal Safe Routine Cutoff τsafe</th><td class="num">${pct(sg.tau_safe_routine)}</td></tr>
+          <tr><th>Positive Conformal Miss p-value</th><td class="num">${Number(sg.conformal_miss_pvalue ?? 0).toFixed(4)}</td></tr>
+          <tr><th>Cal FOR 95% Wilson Upper Bound</th><td class="num">${pct(sg.cal_for_wilson_upper)}</td></tr>
+          <tr><th>Base-Rate Evidence Deficit Dq(x)</th><td class="num">${Number(sg.evidence_deficit_nats ?? 0).toFixed(2)} nats</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div>
+      <h3 class="section-heading" style="margin-bottom:8px;">
+        <span>Decision-Flip VOI Channel Router</span>
+        <span class="badge badge-neutral">9-Node GH</span>
+      </h3>
+      ${
+        vr.triage_voi_zero_already_above_tau
+          ? `<div class="voi-note-box" style="margin-bottom:8px;background:var(--bg-crit);border-color:var(--border-crit);color:var(--ink-crit);font-weight:600;">
+              High Risk ≠ High VOI: Patient is already above τ* (or missing an acute door evaluation). Escalation VOI = 0.000 — act immediately without waiting on external HIE queries.
+            </div>`
+          : `<div class="voi-note-box" style="margin-bottom:8px;">
+              Martingale mean-centered Gauss-Hermite quadrature triggers Stage-2 queries strictly when expected decision-flip gain exceeds query cost c_m.
+            </div>`
+      }
+      <table class="metric-table">
+        <thead>
+          <tr>
+            <th>Stage-2 Channel</th>
+            <th style="text-align:right;">VOI</th>
+            <th style="text-align:right;">Cost</th>
+            <th style="text-align:right;">Route</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${channels
+            .map((ch) => {
+              const routeBadge = ch.unlocked
+                ? `<span class="badge badge-gate-safe">Fetched</span>`
+                : ch.trigger_query
+                ? `<span class="badge badge-gate-hold">Query</span>`
+                : `<span class="badge badge-neutral">Skip</span>`;
+              return `
+                <tr>
+                  <td>${esc(ch.display_name)}</td>
+                  <td class="num">${Number(ch.voi_expected_gain).toFixed(3)}</td>
+                  <td class="num">${Number(ch.query_cost).toFixed(3)}</td>
+                  <td style="text-align:right;">${routeBadge}</td>
+                </tr>
+              `;
+            })
+            .join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+/* --------------------------------------------------------------------------
+ * Render Top Capacity Strip & Queue Rail
  * -------------------------------------------------------------------------- */
 function renderCapacityStrip() {
   const host = document.getElementById("capacity-strip");
@@ -164,9 +331,6 @@ function renderCapacityStrip() {
     .join("");
 }
 
-/* --------------------------------------------------------------------------
- * Render Queue Rail
- * -------------------------------------------------------------------------- */
 function renderQueue() {
   const listEl = document.getElementById("queue-list");
   const countEl = document.getElementById("queue-summary-count");
@@ -209,28 +373,241 @@ function renderQueue() {
 }
 
 /* --------------------------------------------------------------------------
- * Render Active Patient Now Gate (Center Column)
+ * Mode 1: Focused Action View (Calm, Key Actions Only, Progressive Disclosure)
  * -------------------------------------------------------------------------- */
-function renderNowGate() {
-  const root = document.getElementById("now-gate-root");
-  if (!root) return;
-  const pkt = activePacket();
-  if (!pkt) {
-    root.innerHTML = `<div class="panel-surface encounter-header-card"><h2 class="section-heading">No packet selected</h2></div>`;
-    return;
+function renderFocusedNowGate(pkt) {
+  const enc = pkt.encounter || {};
+  const dos = pkt.dossier || {};
+  const vit = enc.vitals || {};
+  const prior = (enc.prior_vitals || [])[0] || null;
+  const evals = enc.evals || {};
+  const sg = pkt.safe_gate || {};
+  const sw = pkt.swarm || {};
+  const card = sw.synthesizer || {};
+  const sentinels = pkt.sentinels || [];
+  const recs = pkt.recommendations || [];
+
+  const gateState = sg.gate_state || "SENTINEL_ESCALATION";
+  const bannerStateCls =
+    gateState === "CERTIFIED_SAFE_ROUTINE"
+      ? "state-safe"
+      : gateState === "AMBIGUOUS_HOLD_VOI"
+      ? "state-hold"
+      : "state-crit";
+
+  const vPill = (label, val, pVal, isAbn) => {
+    const trend = pVal !== undefined && pVal !== null && pVal !== val ? ` (← ${pVal})` : "";
+    return `<span class="vital-pill ${isAbn ? "abn" : ""}"><strong>${esc(label)}</strong> ${esc(val)}${esc(trend)}</span>`;
+  };
+
+  const missingEvals = ["trauma", "neuro", "d2b"].filter((k) => evals[k] === "missing");
+
+  // Distill ONLY the key actionable items so the clinician is never overwhelmed
+  const actionRows = [];
+
+  for (const s of sentinels) {
+    actionRows.push({
+      tone: "urgent",
+      badge: s.badge,
+      title: s.summary,
+      sub: s.clinical_why,
+    });
   }
 
+  for (const f of card.findings || []) {
+    actionRows.push({
+      tone: "urgent",
+      badge: `Chart Delta ${f.id}`,
+      title: f.finding,
+      sub: `${f.action} (${f.why_now})`,
+    });
+  }
+
+  const activeDecisionRecs = recs.filter(
+    (r) => r.alert || (r.type === "space_priority" && r.value?.priority !== "waiting_room")
+  );
+  const quietDecisionCount = recs.length - activeDecisionRecs.length;
+
+  for (const r of activeDecisionRecs) {
+    actionRows.push({
+      tone: r.alert ? "attention" : "normal",
+      badge: DECISION_TITLES[r.type].replace(/^\d+\.\s*/, ""),
+      title: r.proposal,
+      sub: r.rationale,
+    });
+  }
+
+  if ((card.ask_patient || []).length > 0) {
+    actionRows.push({
+      tone: "normal",
+      badge: "Ask Patient Next",
+      title: card.ask_patient.map((q) => q.question).join(" · "),
+      sub: "Targeted high-VOI bedside verification questions.",
+    });
+  }
+
+  if (actionRows.length === 0) {
+    actionRows.push({
+      tone: "normal",
+      badge: "Routine Pathway",
+      title: "All 5 PITM decisions match routine standing care with zero chart sentinels.",
+      sub: "Conformal missed-escalation check passed — safe for 1-pinch routine acceptance.",
+    });
+  }
+
+  const medsList = (dos.current_meds || []).join(", ") || "None";
+  const recentLabsTxt =
+    (dos.recent_labs || []).map((l) => `${l.test}: ${l.value} (${l.when})`).join(" · ") ||
+    "No recent labs on file";
+  const recentVisitsTxt =
+    (dos.last_ed_visits || []).map((v) => `${v.when}: ${v.summary}`).join(" · ") ||
+    "No recent ED visits";
+
+  return `
+    <!-- Compact Patient Summary + Immediate Gate Bar -->
+    <article class="panel-surface focused-hero-card">
+      <div class="enc-top-row">
+        <div>
+          <h2 class="enc-heading">${esc(pkt.packet_id)} · ${esc(enc.chief_complaint)}</h2>
+          <p class="enc-subline">
+            ${esc(enc.age_years)}y ${esc(enc.sex)} · ${esc(enc.arrival_mode)} (${esc(enc.arrival_minutes_ago)}m ago) · Charted ${esc(enc.triage_status)}
+          </p>
+        </div>
+        <div class="enc-chip-cluster">
+          <span class="${esiBadgeClass(enc.triage_status)}">Charted ${esc(enc.triage_status)}</span>
+          <span class="badge ${pkt.ekg_chip?.status === "pending" ? "badge-gate-hold" : "badge-neutral"}">
+            ${esc(pkt.ekg_chip?.label || "EKG N/A")}
+          </span>
+          ${missingEvals.map((k) => `<span class="badge badge-gate-crit">${esc(k.toUpperCase())} MISSING</span>`).join("")}
+        </div>
+      </div>
+
+      <div class="focused-vitals-inline">
+        ${vPill("HR", `${vit.hr} bpm`, prior?.hr, vit.hr >= 100 || vit.hr <= 50)}
+        ${vPill("BP", `${vit.sbp}/${vit.dbp}`, prior ? `${prior.sbp}/${prior.dbp}` : null, vit.sbp < 95)}
+        ${vPill("RR", `${vit.rr}/m`, prior?.rr, vit.rr >= 22)}
+        ${vPill("SpO2", `${vit.spo2}%`, prior?.spo2, vit.spo2 < 94)}
+        ${vPill("Temp", `${vit.temp_c}°C`, prior?.temp_c, vit.temp_c >= 38.0 || vit.temp_c < 36.0)}
+        ${(vit.gcs ?? 15) < 15 ? vPill("GCS", vit.gcs, prior?.gcs, true) : ""}
+      </div>
+
+      <div class="safe-gate-banner ${bannerStateCls}" style="margin-top:14px;">
+        <div class="gate-copy">
+          <h3 class="gate-title">
+            ${iconSvg(gateState === "CERTIFIED_SAFE_ROUTINE" ? "check" : gateState === "AMBIGUOUS_HOLD_VOI" ? "hold" : "alert")}
+            <span>${esc(sg.gate_label)}</span>
+          </h3>
+          <p class="gate-desc">${esc(sg.gate_reason)}</p>
+        </div>
+        <div class="gate-actions">
+          ${buildGateActionButtons(pkt)}
+        </div>
+      </div>
+    </article>
+
+    <!-- Key Actionable Items Only -->
+    <section class="panel-surface focused-checklist-card" aria-label="Key actionable clinical items">
+      <h3 class="section-heading">
+        <span>Key Actionable Items (${actionRows.length})</span>
+        ${quietDecisionCount > 0 ? `<span class="badge badge-neutral">${quietDecisionCount} routine PITM item(s) unchanged</span>` : ""}
+      </h3>
+      ${card.framing_check ? `<div class="framing-alert">${esc(card.framing_check)}</div>` : ""}
+      <ul class="action-item-list">
+        ${actionRows
+          .map(
+            (item) => `
+          <li class="action-item-row ${item.tone === "urgent" ? "urgent" : item.tone === "attention" ? "attention" : ""}">
+            <div class="action-item-main">
+              <p class="action-item-title">${esc(item.title)}</p>
+              <p class="action-item-sub">${esc(item.sub)}</p>
+            </div>
+            <span class="badge ${item.tone === "urgent" ? "badge-gate-crit" : item.tone === "attention" ? "badge-gate-hold" : "badge-neutral"}">
+              ${esc(item.badge)}
+            </span>
+          </li>
+        `
+          )
+          .join("")}
+      </ul>
+    </section>
+
+    <!-- On-Demand Expandable Detail Sections (Collapsed by default to prevent visual overload) -->
+    <div class="expand-stack">
+      <details class="expand-drawer">
+        <summary>
+          <span>Customize or Override Individual PITM Decisions (All 5)</span>
+          <span class="badge badge-neutral">Expand to Change / Decline</span>
+        </summary>
+        <div class="drawer-content">
+          <div class="decision-rows">
+            ${buildDecisionRowsHtml(pkt)}
+          </div>
+          <div class="commit-bar">
+            <span style="font-size:12.5px;color:var(--ink-secondary);">
+              Overrides require at least 8 characters and log to the SHA-256 hash-chained ledger.
+            </span>
+            <button type="button" class="btn btn-primary" data-action="commit-five">
+              Commit Customized 5 Decisions
+            </button>
+          </div>
+        </div>
+      </details>
+
+      <details class="expand-drawer">
+        <summary>
+          <span>Nurse Note, Chart Dossier &amp; SPOT DR Cognitive Strip</span>
+          <span class="badge badge-neutral">${esc(sw.orthogonality?.distinct_mechanisms_covered ?? 0)} Mechanism Axis/Axes</span>
+        </summary>
+        <div class="drawer-content">
+          <div class="nurse-note-box" style="margin-top:0;margin-bottom:10px;">
+            <strong>Nurse Triage Note:</strong> ${esc(enc.nurse_hx_summary)}
+          </div>
+          <div class="delta-split" style="margin-top:0;margin-bottom:12px;">
+            <div class="delta-subbox">
+              <h4 class="subbox-title">PMH &amp; Active Medications</h4>
+              <p style="margin:0;font-size:12.5px;color:var(--ink-secondary);">
+                <strong>PMH:</strong> ${esc(dos.pmh_summary)}<br/>
+                <strong>Meds:</strong> ${esc(medsList)}
+              </p>
+            </div>
+            <div class="delta-subbox">
+              <h4 class="subbox-title">Recent Visits &amp; Labs</h4>
+              <p style="margin:0;font-size:12.5px;color:var(--ink-secondary);">
+                <strong>Visits:</strong> ${esc(recentVisitsTxt)}<br/>
+                <strong>Labs:</strong> ${esc(recentLabsTxt)}
+              </p>
+            </div>
+          </div>
+          ${buildSpotdHtml(sw)}
+        </div>
+      </details>
+
+      <details class="expand-drawer">
+        <summary class="tabular">
+          <span>Statistical Safety &amp; Decision-Flip VOI Receipt</span>
+          <span class="badge badge-neutral">Door p₁ ${pct(sg.p1_calibrated)} → Full Chart p₂ ${pct(sg.p2_calibrated)} · τsafe ${pct(sg.tau_safe_routine)}</span>
+        </summary>
+        <div class="drawer-content">
+          ${buildSafetyMetricsInnerHtml(pkt)}
+        </div>
+      </details>
+    </div>
+  `;
+}
+
+/* --------------------------------------------------------------------------
+ * Mode 2: Full Workbench View (3-Column Power-User Desk)
+ * -------------------------------------------------------------------------- */
+function renderWorkbenchNowGate(pkt) {
   const enc = pkt.encounter || {};
   const vit = enc.vitals || {};
   const prior = (enc.prior_vitals || [])[0] || null;
   const evals = enc.evals || {};
   const sg = pkt.safe_gate || {};
-  const vr = pkt.voi_routing || {};
   const sw = pkt.swarm || {};
   const card = sw.synthesizer || {};
   const orth = sw.orthogonality || {};
   const sentinels = pkt.sentinels || [];
-  const drafts = ensureDraftForPacket(pkt);
 
   const gateState = sg.gate_state || "SENTINEL_ESCALATION";
   const bannerStateCls =
@@ -241,44 +618,19 @@ function renderNowGate() {
       : "state-crit";
 
   const vitalCell = (val, priorVal, abnCond, unit = "") => {
-    const deltaStr = priorVal !== undefined && priorVal !== null && priorVal !== val ? ` (door ${priorVal})` : "";
+    const deltaStr =
+      priorVal !== undefined && priorVal !== null && priorVal !== val ? ` (door ${priorVal})` : "";
     return `<td class="${abnCond ? "vital-abn" : ""}">${esc(val ?? "—")}${esc(unit)}${esc(deltaStr)}</td>`;
   };
 
   const evalBadges = ["trauma", "neuro", "d2b"]
     .map((k) => {
       const st = evals[k] || "not_indicated";
-      const cls = st === "missing" ? "badge-gate-crit" : st === "done" ? "badge-gate-safe" : "badge-neutral";
+      const cls =
+        st === "missing" ? "badge-gate-crit" : st === "done" ? "badge-gate-safe" : "badge-neutral";
       return `<span class="badge ${cls}">${esc(k.toUpperCase())}: ${esc(st.replace("_", " "))}</span>`;
     })
     .join("");
-
-  let gateButtonsHtml = "";
-  if (sg.allow_one_pinch_routine) {
-    gateButtonsHtml = `
-      <button type="button" class="btn btn-safe" id="btn-fastpass-routine">
-        ${iconSvg("check")} Accept Routine — Conformal Certified Safe (1-Pinch)
-      </button>
-    `;
-  } else if (gateState === "AMBIGUOUS_HOLD_VOI" && (vr.auto_triggered_channels || []).length > 0) {
-    gateButtonsHtml = `
-      <button type="button" class="btn btn-hold" id="btn-prefetch-voi">
-        ${iconSvg("hold")} Pre-Fetch ${vr.auto_triggered_channels.length} High-VOI Channel(s)
-      </button>
-      <button type="button" class="btn" id="btn-accept-all-reviewed">
-        Accept All 5 Proposals (Manual Review)
-      </button>
-    `;
-  } else {
-    gateButtonsHtml = `
-      <button type="button" class="btn" disabled title="1-pinch routine fast-pass is locked when clinical sentinels, missing door evaluations, or elevated risk are present.">
-        1-Pinch Routine Locked
-      </button>
-      <button type="button" class="btn btn-crit" id="btn-accept-all-reviewed">
-        Commit All 5 Escalated Proposals
-      </button>
-    `;
-  }
 
   const sentinelHtml =
     sentinels.length > 0
@@ -364,57 +716,7 @@ function renderNowGate() {
         </div>`
       : "";
 
-  const spotdHtml = `
-    <div class="spotd-grid" aria-label="Satz-EM SPOT DR cognitive checklist">
-      ${(sw.spotd || [])
-        .map(
-          (cell) => `
-        <div class="spotd-cell ${cell.chart ? "chart-backed" : ""}">
-          <div class="spotd-head">
-            <span class="spotd-letter">${esc(cell.letter)}</span>
-            <span>${esc(cell.label)}</span>
-          </div>
-          <div class="spotd-phrase">${esc(cell.phrase)}</div>
-        </div>
-      `
-        )
-        .join("")}
-    </div>
-  `;
-
-  const decisionsHtml = (pkt.recommendations || [])
-    .map((rec) => {
-      const d = drafts[rec.type] || { action: "accept", overrideReason: "", finalText: rec.proposal };
-      return `
-        <div class="dec-row ${rec.alert ? "dec-alert" : ""}">
-          <div class="dec-main">
-            <div class="dec-copy">
-              <p class="dec-proposal">${esc(DECISION_TITLES[rec.type] || rec.type)}: ${esc(rec.proposal)}</p>
-              <p class="dec-rationale">${esc(rec.rationale)}</p>
-            </div>
-            <div class="dec-controls" role="group" aria-label="${esc(DECISION_TITLES[rec.type] || rec.type)} action">
-              <button type="button" class="dec-act-btn" data-dec-type="${esc(rec.type)}" data-act="accept" aria-pressed="${d.action === "accept"}">Accept</button>
-              <button type="button" class="dec-act-btn" data-dec-type="${esc(rec.type)}" data-act="change" aria-pressed="${d.action === "change"}">Change</button>
-              <button type="button" class="dec-act-btn" data-dec-type="${esc(rec.type)}" data-act="decline" aria-pressed="${d.action === "decline"}">Decline</button>
-            </div>
-          </div>
-          ${
-            d.action === "change"
-              ? `
-            <div class="override-editor">
-              <input type="text" class="override-input" data-override-final="${esc(rec.type)}" value="${esc(d.finalText)}" placeholder="Specify modified clinical decision…" aria-label="Modified clinical decision" />
-              <input type="text" class="override-input" data-override-reason="${esc(rec.type)}" value="${esc(d.overrideReason)}" placeholder="Override rationale (minimum 8 characters required)…" aria-label="Override rationale" />
-            </div>
-          `
-              : ""
-          }
-        </div>
-      `;
-    })
-    .join("");
-
-  root.innerHTML = `
-    <!-- 1. Patient Arrival & Vital Trajectory -->
+  return `
     <article class="panel-surface encounter-header-card">
       <div class="enc-top-row">
         <div>
@@ -425,7 +727,7 @@ function renderNowGate() {
         </div>
         <div class="enc-chip-cluster">
           <span class="${esiBadgeClass(enc.triage_status)}">Charted ${esc(enc.triage_status)}</span>
-          <span class="badge ${pkt.ekg_chip?.status === "pending" ? "badge-gate-hold" : "badge-neutral"}" title="${esc(pkt.ekg_chip?.detail || "EKG is strictly a status chip, never ordered here.")}">
+          <span class="badge ${pkt.ekg_chip?.status === "pending" ? "badge-gate-hold" : "badge-neutral"}">
             ${esc(pkt.ekg_chip?.label || "EKG N/A")}
           </span>
           ${evalBadges}
@@ -439,14 +741,7 @@ function renderNowGate() {
       <div class="vitals-table-wrap">
         <table class="vitals-strip">
           <thead>
-            <tr>
-              <th>HR</th>
-              <th>BP</th>
-              <th>RR</th>
-              <th>SpO2</th>
-              <th>Temp</th>
-              <th>GCS</th>
-            </tr>
+            <tr><th>HR</th><th>BP</th><th>RR</th><th>SpO2</th><th>Temp</th><th>GCS</th></tr>
           </thead>
           <tbody>
             <tr>
@@ -462,7 +757,6 @@ function renderNowGate() {
       </div>
     </article>
 
-    <!-- 2. Dual Conformal Safe-Gate Fast-Pass Banner -->
     <section class="safe-gate-banner ${bannerStateCls}" aria-label="Dual Conformal Safe-Gate status">
       <div class="gate-copy">
         <h3 class="gate-title">
@@ -472,14 +766,12 @@ function renderNowGate() {
         <p class="gate-desc">${esc(sg.gate_reason)}</p>
       </div>
       <div class="gate-actions">
-        ${gateButtonsHtml}
+        ${buildGateActionButtons(pkt)}
       </div>
     </section>
 
-    <!-- 3. Non-Waivable Must-Know Sentinels -->
     ${sentinelHtml}
 
-    <!-- 4. Orthogonal 7-Agent Clinical Delta & SPOT DR -->
     <section class="panel-surface delta-card" aria-label="Orthogonal clinical delta synthesis">
       <h3 class="section-heading">
         <span>Orthogonal Clinical Delta (Chart vs. Door Triage)</span>
@@ -487,18 +779,14 @@ function renderNowGate() {
           ${esc(card.priority)} · ${esc(orth.distinct_mechanisms_covered ?? 0)} Mechanism Axis/Axes
         </span>
       </h3>
-
       ${card.framing_check ? `<div class="framing-alert">${esc(card.framing_check)}</div>` : ""}
       <p class="delta-headline">${esc(card.headline)}</p>
-
       ${findingsHtml}
       ${safetyAndAskHtml}
-      ${spotdHtml}
-
+      ${buildSpotdHtml(sw)}
       <p style="margin:12px 0 0;font-size:12.5px;color:var(--ink-secondary);">
         <strong>Flow Note:</strong> ${esc(card.queue_note)}
       </p>
-
       <details class="orth-disclosure">
         <summary class="tabular">
           Sequential Conditional Gain (G_{m|S}) Audit: ${esc(orth.n_orthogonal_selected ?? 0)} selected · ${esc(orth.n_echoes_suppressed ?? 0)} triage echoes suppressed · ${esc(orth.n_twins_suppressed ?? 0)} collinear twins pruned
@@ -514,20 +802,19 @@ function renderNowGate() {
       </details>
     </section>
 
-    <!-- 5. Bounded 5 PITM Decisions Cockpit -->
     <section class="panel-surface decisions-card" aria-label="Five Provider-in-the-Middle decisions">
       <h3 class="section-heading">
         <span>Provider-in-the-Middle 5 Bounded Decisions</span>
         <span class="badge badge-neutral">EKG Never Ordered Here · Override Requires Rationale</span>
       </h3>
       <div class="decision-rows">
-        ${decisionsHtml}
+        ${buildDecisionRowsHtml(pkt)}
       </div>
       <div class="commit-bar">
         <span style="font-size:12.5px;color:var(--ink-secondary);">
           Commits all 5 decisions to the SHA-256 hash-chained ledger for Neyman two-phase shadow auditing.
         </span>
-        <button type="button" class="btn btn-primary" id="btn-commit-five">
+        <button type="button" class="btn btn-primary" data-action="commit-five">
           Commit 5 Decisions to Ledger
         </button>
       </div>
@@ -535,9 +822,18 @@ function renderNowGate() {
   `;
 }
 
-/* --------------------------------------------------------------------------
- * Render Statistical Safety & VOI Rail (Right Column)
- * -------------------------------------------------------------------------- */
+function renderNowGate() {
+  const root = document.getElementById("now-gate-root");
+  if (!root) return;
+  const pkt = activePacket();
+  if (!pkt) {
+    root.innerHTML = `<div class="panel-surface encounter-header-card"><h2 class="section-heading">No packet selected</h2></div>`;
+    return;
+  }
+  root.innerHTML =
+    state.viewMode === "focused" ? renderFocusedNowGate(pkt) : renderWorkbenchNowGate(pkt);
+}
+
 function renderSafetyRail() {
   const rail = document.getElementById("safety-rail-root");
   if (!rail) return;
@@ -546,115 +842,400 @@ function renderSafetyRail() {
     rail.innerHTML = "";
     return;
   }
+  rail.innerHTML = buildSafetyMetricsInnerHtml(pkt);
+}
 
+function renderSpatialHud() {
+  const hud = document.getElementById("spatial-patient-hud");
+  if (!hud) return;
+  const pkt = activePacket();
+  if (!pkt) return;
+  const enc = pkt.encounter || {};
   const sg = pkt.safe_gate || {};
-  const vr = pkt.voi_routing || {};
-  const channels = vr.channels || [];
+  const proposedEsi = pkt.recommendations?.[0]?.value?.triage_status || enc.triage_status;
+  const topFinding =
+    pkt.swarm?.synthesizer?.findings?.[0]?.finding ||
+    pkt.sentinels?.[0]?.summary ||
+    pkt.recommendations?.find((r) => r.alert)?.proposal ||
+    "Routine standing pathway — zero chart sentinels.";
 
-  const pct = (v) => `${((Number(v) || 0) * 100).toFixed(1)}%`;
-
-  rail.innerHTML = `
-    <div>
-      <h2 class="section-heading" style="margin-bottom:8px;">
-        <span>Calibrated Risk &amp; Conformal Receipt</span>
-        ${vr.cfbh_alert_certified ? `<span class="badge badge-gate-crit">CfBH Alert Certified</span>` : `<span class="badge badge-neutral">Sub-CfBH</span>`}
-      </h2>
-      <table class="metric-table">
-        <tbody>
-          <tr>
-            <th>Stage-1 Door Posterior p₁(x)</th>
-            <td class="num">${pct(sg.p1_calibrated)}</td>
-          </tr>
-          <tr>
-            <th>Framing-Blind Objective p₁,blind(x)</th>
-            <td class="num">${pct(sg.p1_framing_blind)}</td>
-          </tr>
-          <tr>
-            <th>Stage-2 Full Chart Posterior p₂(x)</th>
-            <td class="num">${pct(sg.p2_calibrated)}</td>
-          </tr>
-          <tr>
-            <th>Bayes Escalation Threshold τ*</th>
-            <td class="num">${pct(sg.tau_bayes_triage)}</td>
-          </tr>
-          <tr>
-            <th>Capacity-Adjusted Space τ*space</th>
-            <td class="num">${pct(sg.tau_space_capacity_adjusted)}</td>
-          </tr>
-          <tr>
-            <th>Conformal Safe Routine Cutoff τsafe</th>
-            <td class="num">${pct(sg.tau_safe_routine)}</td>
-          </tr>
-          <tr>
-            <th>Positive Conformal Miss p-value</th>
-            <td class="num">${Number(sg.conformal_miss_pvalue ?? 0).toFixed(4)}</td>
-          </tr>
-          <tr>
-            <th>Cal FOR 95% Wilson Upper Bound</th>
-            <td class="num">${pct(sg.cal_for_wilson_upper)}</td>
-          </tr>
-          <tr>
-            <th>Base-Rate Evidence Deficit Dq(x)</th>
-            <td class="num">${Number(sg.evidence_deficit_nats ?? 0).toFixed(2)} nats</td>
-          </tr>
-        </tbody>
-      </table>
+  hud.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+      <div>
+        <h2 style="margin:0;font-size:16px;font-weight:700;">${esc(pkt.packet_id)} · ${esc(enc.chief_complaint)}</h2>
+        <p class="tabular" style="margin:3px 0 0;font-size:12px;color:var(--ink-secondary);">
+          ${esc(enc.age_years)}y ${esc(enc.sex)} · Charted ${esc(enc.triage_status)} → Proposed ${esc(proposedEsi)} · Full Chart Risk ${pct(sg.p2_calibrated)}
+        </p>
+      </div>
+      ${gateBadgeHtml(sg.gate_state)}
     </div>
-
-    <div>
-      <h3 class="section-heading" style="margin-bottom:8px;">
-        <span>Decision-Flip VOI Channel Router</span>
-        <span class="badge badge-neutral">9-Node GH</span>
-      </h3>
-      ${
-        vr.triage_voi_zero_already_above_tau
-          ? `<div class="voi-note-box" style="margin-bottom:8px;background:var(--bg-crit);border-color:var(--border-crit);color:var(--ink-crit);font-weight:600;">
-              High Risk ≠ High VOI: Patient is already above τ* (or missing an acute door evaluation). Escalation VOI = 0.000 — act immediately without waiting on external HIE queries.
-            </div>`
-          : `<div class="voi-note-box" style="margin-bottom:8px;">
-              Martingale mean-centered Gauss-Hermite quadrature triggers Stage-2 queries strictly when expected decision-flip gain exceeds query cost c_m.
-            </div>`
-      }
-      <table class="metric-table">
-        <thead>
-          <tr>
-            <th>Stage-2 Channel</th>
-            <th style="text-align:right;">VOI</th>
-            <th style="text-align:right;">Cost</th>
-            <th style="text-align:right;">Route</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${channels
-            .map((ch) => {
-              const routeBadge = ch.unlocked
-                ? `<span class="badge badge-gate-safe">Fetched</span>`
-                : ch.trigger_query
-                ? `<span class="badge badge-gate-hold">Query</span>`
-                : `<span class="badge badge-neutral">Skip</span>`;
-              return `
-                <tr>
-                  <td>${esc(ch.display_name)}</td>
-                  <td class="num">${Number(ch.voi_expected_gain).toFixed(3)}</td>
-                  <td class="num">${Number(ch.query_cost).toFixed(3)}</td>
-                  <td style="text-align:right;">${routeBadge}</td>
-                </tr>
-              `;
-            })
-            .join("")}
-        </tbody>
-      </table>
+    <p style="margin:10px 0;padding:8px 10px;border-radius:6px;background:var(--bg-subtle);border:1px solid var(--border);font-size:12.5px;">
+      <strong>Lead Focus:</strong> ${esc(topFinding)}
+    </p>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:center;">
+      ${buildGateActionButtons(pkt)}
+      <button type="button" class="btn" data-switch-tab="focused">Open Focused Detail</button>
     </div>
   `;
+}
+
+/* --------------------------------------------------------------------------
+ * Mode 3: Interactive 3D Spatial Stage (Three.js r184 WebGL + OrbitControls + Raycaster)
+ * -------------------------------------------------------------------------- */
+function createLabelSprite(THREE, text, bgColor = "#18222F", fgColor = "#FFFFFF") {
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 64;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = bgColor;
+  ctx.beginPath();
+  ctx.roundRect(6, 8, 244, 48, 12);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.45)";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = fgColor;
+  ctx.font = "bold 22px -apple-system, BlinkMacSystemFont, Inter, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, 128, 33);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(0.75, 0.19, 1);
+  return { sprite, tex, mat };
+}
+
+class SpatialTriageStage {
+  constructor(THREE, OrbitControls, host) {
+    this.THREE = THREE;
+    this.host = host;
+    this.disposables = [];
+    this.interactiveMeshes = [];
+
+    this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color(0x0f1722);
+
+    const w = Math.max(320, host.clientWidth || window.innerWidth);
+    const h = Math.max(320, host.clientHeight || window.innerHeight - 64);
+
+    this.camera = new THREE.PerspectiveCamera(46, w / h, 0.1, 60);
+    this.camera.position.set(0, 4.1, 6.2);
+
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.setSize(w, h);
+    host.innerHTML = "";
+    host.appendChild(this.renderer.domElement);
+
+    this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+    this.controls.enableDamping = true;
+    this.controls.dampingFactor = 0.08;
+    this.controls.target.set(0, 0.55, 0);
+    this.controls.minDistance = 2.4;
+    this.controls.maxDistance = 12.5;
+    this.controls.maxPolarAngle = Math.PI * 0.48;
+
+    // Crisp architectural studio lighting
+    const hemi = new THREE.HemisphereLight(0xf2f7ff, 0x1e293b, 1.35);
+    this.scene.add(hemi);
+    const dir = new THREE.DirectionalLight(0xffffff, 1.25);
+    dir.position.set(4.5, 8.0, 5.0);
+    this.scene.add(dir);
+
+    // Architectural floor grid + Bayes / Conformal threshold rings
+    const grid = new THREE.GridHelper(10, 20, 0x334155, 0x1e293b);
+    grid.position.y = 0.0;
+    this.scene.add(grid);
+
+    const outerRingGeo = new THREE.RingGeometry(3.15, 3.23, 96);
+    const outerRingMat = new THREE.MeshBasicMaterial({
+      color: 0x38bdf8,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.45,
+    });
+    const outerRing = new THREE.Mesh(outerRingGeo, outerRingMat);
+    outerRing.rotation.x = -Math.PI / 2;
+    outerRing.position.y = 0.01;
+    this.scene.add(outerRing);
+
+    const innerRingGeo = new THREE.RingGeometry(1.45, 1.51, 72);
+    const innerRingMat = new THREE.MeshBasicMaterial({
+      color: 0x22c55e,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.35,
+    });
+    const innerRing = new THREE.Mesh(innerRingGeo, innerRingMat);
+    innerRing.rotation.x = -Math.PI / 2;
+    innerRing.position.y = 0.012;
+    this.scene.add(innerRing);
+
+    this.dynamicGroup = new THREE.Group();
+    this.scene.add(this.dynamicGroup);
+
+    this.raycaster = new THREE.Raycaster();
+    this.pointer = new THREE.Vector2();
+    this.downPos = { x: 0, y: 0 };
+    this.clock = new THREE.Clock();
+
+    this._bindInteractions();
+    this._setupResize();
+    this._animate = this._animate.bind(this);
+    this.renderer.setAnimationLoop(this._animate);
+
+    // Expose WebXR button if browser supports immersive XR
+    if (navigator.xr && typeof navigator.xr.isSessionSupported === "function") {
+      navigator.xr.isSessionSupported("immersive-vr").then((supported) => {
+        const btn = document.getElementById("btn-enter-webxr");
+        if (btn && supported) {
+          btn.hidden = false;
+          this.renderer.xr.enabled = true;
+          btn.onclick = async () => {
+            const session = await navigator.xr.requestSession("immersive-vr", {
+              optionalFeatures: ["local-floor", "hand-tracking"],
+            });
+            this.renderer.xr.setSession(session);
+          };
+        }
+      });
+    }
+  }
+
+  resetCamera() {
+    this.camera.position.set(0, 4.1, 6.2);
+    this.controls.target.set(0, 0.55, 0);
+    this.controls.update();
+  }
+
+  _bindInteractions() {
+    const dom = this.renderer.domElement;
+    dom.addEventListener("pointerdown", (ev) => {
+      this.downPos = { x: ev.clientX, y: ev.clientY };
+    });
+
+    dom.addEventListener("pointerup", (ev) => {
+      const dist = Math.hypot(ev.clientX - this.downPos.x, ev.clientY - this.downPos.y);
+      if (dist > 6) return; // Was an orbit drag, not a click
+
+      const rect = dom.getBoundingClientRect();
+      this.pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+      this.pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+
+      this.raycaster.setFromCamera(this.pointer, this.camera);
+      const hits = this.raycaster.intersectObjects(this.interactiveMeshes, false);
+      if (hits.length > 0) {
+        const hit = hits[0].object;
+        if (hit.userData?.packetId) {
+          state.selectedPacketId = hit.userData.packetId;
+          renderAll();
+        } else if (hit.userData?.capKey) {
+          updateCapacity(hit.userData.capKey, 1);
+        }
+      }
+    });
+  }
+
+  _setupResize() {
+    const onResize = () => {
+      if (!this.host || state.viewMode !== "spatial") return;
+      const w = Math.max(320, this.host.clientWidth || window.innerWidth);
+      const h = Math.max(320, this.host.clientHeight || window.innerHeight - 64);
+      this.camera.aspect = w / h;
+      this.camera.updateProjectionMatrix();
+      this.renderer.setSize(w, h);
+    };
+    window.addEventListener("resize", onResize);
+    this._onResize = onResize;
+  }
+
+  clearDynamic() {
+    while (this.dynamicGroup.children.length > 0) {
+      const ch = this.dynamicGroup.children.pop();
+      this.dynamicGroup.remove(ch);
+    }
+    for (const d of this.disposables) {
+      if (d && typeof d.dispose === "function") d.dispose();
+    }
+    this.disposables = [];
+    this.interactiveMeshes = [];
+    this.selectedBeacon = null;
+  }
+
+  sync(appState) {
+    const THREE = this.THREE;
+    this.clearDynamic();
+
+    // 1. Center 4 Interactive ED Capacity Pillars
+    const c = appState.capacity;
+    const zones = [
+      { key: "bedsOpen", label: `Beds ${c.bedsOpen}/${c.bedsTotal}`, x: -0.9, z: 0, ratio: c.bedsOpen / Math.max(1, c.bedsTotal), color: 0x2563eb },
+      { key: "hallwayOpen", label: `Hall ${c.hallwayOpen}/${c.hallwayTotal}`, x: -0.3, z: 0, ratio: c.hallwayOpen / Math.max(1, c.hallwayTotal), color: 0xd97706 },
+      { key: "fastTrackOpen", label: `Fast ${c.fastTrackOpen}/${c.fastTrackTotal}`, x: 0.3, z: 0, ratio: c.fastTrackOpen / Math.max(1, c.fastTrackTotal), color: 0x16a34a },
+      { key: "waitboard", label: `Wait ${c.waitboard}`, x: 0.9, z: 0, ratio: Math.min(1, c.waitboard / 24), color: 0x64748b },
+    ];
+
+    for (const z of zones) {
+      const h = 0.28 + 0.9 * z.ratio;
+      const geo = new THREE.BoxGeometry(0.36, h, 0.36);
+      const mat = new THREE.MeshStandardMaterial({
+        color: z.color,
+        roughness: 0.32,
+        metalness: 0.18,
+      });
+      this.disposables.push(geo, mat);
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(z.x, h / 2, z.z);
+      mesh.userData = { capKey: z.key };
+      this.dynamicGroup.add(mesh);
+      this.interactiveMeshes.push(mesh);
+
+      const lbl = createLabelSprite(THREE, z.label, "#0F1722", "#E2E8F0");
+      lbl.sprite.position.set(z.x, h + 0.22, z.z);
+      this.disposables.push(lbl.tex, lbl.mat);
+      this.dynamicGroup.add(lbl.sprite);
+    }
+
+    // 2. Outer Ring of 22 Calibrated Patient Totems
+    const pkts = appState.packets || [];
+    const n = Math.max(1, pkts.length);
+
+    pkts.forEach((pkt, idx) => {
+      const angle = (idx / n) * Math.PI * 2 - Math.PI / 2;
+      const radius = 3.18;
+      const pCal = Math.max(
+        pkt.safe_gate?.p1_framing_blind || 0.02,
+        pkt.safe_gate?.p2_calibrated || 0.02
+      );
+      const height = 0.32 + 1.85 * Math.min(1, pCal);
+      const gate = pkt.safe_gate?.gate_state;
+      const hex =
+        gate === "CERTIFIED_SAFE_ROUTINE"
+          ? 0x218348
+          : gate === "AMBIGUOUS_HOLD_VOI"
+          ? 0xd48b08
+          : 0xc9352b;
+
+      const isSel = pkt.packet_id === appState.selectedPacketId;
+      const isReviewed = appState.reviewedPacketIds.has(pkt.packet_id);
+
+      const geo = new THREE.CylinderGeometry(isSel ? 0.16 : 0.12, isSel ? 0.18 : 0.13, height, 24);
+      const mat = new THREE.MeshStandardMaterial({
+        color: hex,
+        roughness: 0.28,
+        metalness: 0.15,
+        emissive: isSel ? hex : 0x000000,
+        emissiveIntensity: isSel ? 0.55 : 0.0,
+        opacity: isReviewed ? 0.45 : 1.0,
+        transparent: isReviewed,
+      });
+      this.disposables.push(geo, mat);
+
+      const x = Math.cos(angle) * radius;
+      const z = Math.sin(angle) * radius;
+      const totem = new THREE.Mesh(geo, mat);
+      totem.position.set(x, height / 2, z);
+      totem.userData = { packetId: pkt.packet_id };
+      this.dynamicGroup.add(totem);
+      this.interactiveMeshes.push(totem);
+
+      const shortId = pkt.packet_id.replace("syn-", "");
+      const lbl = createLabelSprite(
+        THREE,
+        isSel ? `▶ ${shortId}` : shortId,
+        isSel ? "#F8FAFC" : "#1E293B",
+        isSel ? "#0F1722" : "#F8FAFC"
+      );
+      lbl.sprite.position.set(x, height + 0.22, z);
+      this.disposables.push(lbl.tex, lbl.mat);
+      this.dynamicGroup.add(lbl.sprite);
+
+      if (isSel) {
+        const ringG = new THREE.RingGeometry(0.24, 0.31, 32);
+        const ringM = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+        const beacon = new THREE.Mesh(ringG, ringM);
+        beacon.rotation.x = -Math.PI / 2;
+        beacon.position.set(x, 0.02, z);
+        this.disposables.push(ringG, ringM);
+        this.dynamicGroup.add(beacon);
+        this.selectedBeacon = beacon;
+      }
+    });
+  }
+
+  _animate() {
+    if (state.viewMode !== "spatial" && !this.renderer.xr.isPresenting) return;
+    const t = this.clock.getElapsedTime();
+    if (this.selectedBeacon) {
+      const pulse = 1 + 0.12 * Math.sin(t * 4.0);
+      this.selectedBeacon.scale.set(pulse, pulse, 1);
+    }
+    this.controls.update();
+    this.renderer.render(this.scene, this.camera);
+  }
+}
+
+async function ensureSpatialStage() {
+  if (state.spatialStage) {
+    state.spatialStage._onResize?.();
+    state.spatialStage.sync(state);
+    return;
+  }
+  const host = document.getElementById("xr-canvas-host");
+  if (!host) return;
+
+  try {
+    const [THREE, orbitMod] = await Promise.all([
+      import("three"),
+      import("three/addons/controls/OrbitControls.js"),
+    ]);
+    state.spatialStage = new SpatialTriageStage(THREE, orbitMod.OrbitControls, host);
+    state.spatialStage.sync(state);
+  } catch (err) {
+    host.innerHTML = `
+      <div style="padding:32px;color:#E2E8F0;max-width:560px;">
+        <h3 style="margin-top:0;">3D WebGL Renderer Unavailable</h3>
+        <p>Could not load Three.js WebGL modules (${esc(err.message)}). Focused Action and Full Workbench remain active.</p>
+      </div>
+    `;
+  }
+}
+
+function setViewMode(mode) {
+  state.viewMode = mode;
+  document.body.setAttribute("data-view-mode", mode);
+  document.querySelectorAll("[data-view-tab]").forEach((btn) => {
+    btn.setAttribute("aria-selected", String(btn.dataset.viewTab === mode));
+  });
+
+  const stageWrap = document.getElementById("spatial-stage-wrap");
+  if (stageWrap) {
+    stageWrap.hidden = mode !== "spatial";
+  }
+
+  renderAll();
+  if (mode === "spatial") {
+    requestAnimationFrame(() => {
+      ensureSpatialStage();
+    });
+  }
 }
 
 function renderAll() {
   renderCapacityStrip();
   renderQueue();
   renderNowGate();
-  renderSafetyRail();
-  if (state.xrInstance && typeof state.xrInstance.syncFromAppState === "function") {
-    state.xrInstance.syncFromAppState(state);
+  if (state.viewMode === "workbench") {
+    renderSafetyRail();
+  }
+  if (state.viewMode === "spatial") {
+    renderSpatialHud();
+    if (state.spatialStage) {
+      state.spatialStage.sync(state);
+    }
   }
 }
 
@@ -662,7 +1243,7 @@ function renderAll() {
  * API Actions (Capacity, VOI Pre-Fetch, Ledger Commit, Intake, Audit)
  * -------------------------------------------------------------------------- */
 async function loadInitialQueue() {
-  const [healthResp, pktResp, ledResp] = await Promise.all([
+  const [, pktResp, ledResp] = await Promise.all([
     fetch("/api/health").then((r) => r.json()),
     fetch("/api/packets").then((r) => r.json()),
     fetch("/api/ledger").then((r) => r.json()),
@@ -677,15 +1258,9 @@ async function loadInitialQueue() {
   const ledCountEl = document.getElementById("ledger-count");
   if (ledCountEl) ledCountEl.textContent = String(state.ledgerCount);
 
-  // Default to flagship multi-mechanism case syn-ED-022 or first packet
   const defaultPkt =
     state.packets.find((p) => p.packet_id === "syn-ED-022") || state.packets[0] || null;
   state.selectedPacketId = defaultPkt ? defaultPkt.packet_id : null;
-
-  const hudEl = document.getElementById("xr-engine-status");
-  if (hudEl && healthResp.status === "ok") {
-    hudEl.textContent = `Calibrated · AUROC ${healthResp.stage2_test_auroc} · ECE ${healthResp.stage2_test_ece} · τsafe ${(healthResp.tau_safe_routine * 100).toFixed(1)}%`;
-  }
 
   renderAll();
 }
@@ -701,6 +1276,9 @@ async function updateCapacity(key, delta) {
       ? "fastTrackTotal"
       : null;
   let val = Number(next[key] || 0) + delta;
+  if (maxKey && val > Number(next[maxKey])) {
+    val = 0; // Wrap around smoothly when clicking 3D capacity pillars
+  }
   val = Math.max(0, val);
   if (maxKey) val = Math.min(Number(next[maxKey]), val);
   next[key] = val;
@@ -714,7 +1292,6 @@ async function updateCapacity(key, delta) {
   if (resp.packets) {
     state.capacity = resp.capacity;
     state.packets = resp.packets;
-    // Reset unmodified drafts to reflect updated treatment-space proposals
     state.draftDecisions = {};
     renderAll();
   }
@@ -756,7 +1333,9 @@ async function commitDecisionsForActivePacket(forceAcceptAll = false) {
       : drafts[rec.type];
 
     if (d.action === "change" && String(d.overrideReason || "").trim().length < 8) {
-      showToast(`Override rationale for "${DECISION_TITLES[rec.type]}" must be at least 8 characters.`);
+      showToast(
+        `Override rationale for "${DECISION_TITLES[rec.type]}" must be at least 8 characters.`
+      );
       return;
     }
 
@@ -787,6 +1366,12 @@ async function commitDecisionsForActivePacket(forceAcceptAll = false) {
   const ledCountEl = document.getElementById("ledger-count");
   if (ledCountEl) ledCountEl.textContent = String(state.ledgerCount);
   showToast(`Committed 5 PITM decisions for ${pkt.packet_id} (SHA-256 chain verified).`);
+
+  // Advance automatically to next unreviewed arrival in queue
+  const nextUnreviewed = state.packets.find((p) => !state.reviewedPacketIds.has(p.packet_id));
+  if (nextUnreviewed) {
+    state.selectedPacketId = nextUnreviewed.packet_id;
+  }
   renderAll();
 }
 
@@ -853,7 +1438,8 @@ async function openAuditDialog() {
   const body = document.getElementById("audit-dialog-body");
   if (!dlg || !body) return;
   dlg.showModal();
-  body.textContent = "Computing Stage-A Neyman Two-Phase, Stage-B Martingale VOI / CfBH, and Stage-C Subgroup Calibration…";
+  body.textContent =
+    "Computing Stage-A Neyman Two-Phase, Stage-B Martingale VOI / CfBH, and Stage-C Subgroup Calibration…";
 
   const a = await fetch("/api/safety/audit").then((r) => r.json());
   const cs = a.cohort_summary || {};
@@ -918,165 +1504,22 @@ async function openAuditDialog() {
 }
 
 /* --------------------------------------------------------------------------
- * XR Blocks 3D Spatial Integration (xrblocks@0.21.1 + three@0.184.0)
- * -------------------------------------------------------------------------- */
-async function initSpatialXRIfAvailable() {
-  const host = document.getElementById("xr-canvas-host");
-  if (!host) return;
-
-  try {
-    const [THREE, xb] = await Promise.all([import("three"), import("xrblocks")]);
-
-    class EDTriagePITMApp extends xb.Script {
-      constructor() {
-        super();
-        this.ringGroup = new THREE.Group();
-        this.disposables = [];
-        this.headerText = null;
-        this.subText = null;
-      }
-
-      init() {
-        this.add(this.ringGroup);
-
-        // Ambient non-interactive clinical floor halo (pointerEvents: 'none')
-        const ringGeo = new THREE.RingGeometry(1.15, 1.22, 64);
-        const ringMat = new THREE.MeshBasicMaterial({
-          color: 0x1b4d78,
-          side: THREE.DoubleSide,
-          transparent: true,
-          opacity: 0.28,
-        });
-        const floorRing = new THREE.Mesh(ringGeo, ringMat);
-        floorRing.rotation.x = -Math.PI / 2;
-        floorRing.position.set(0, 0.65, -1.6);
-        floorRing.userData.pointerEvents = "none";
-        this.add(floorRing);
-
-        // Spatial Now Gate Summary Card
-        if (xb.UICard && xb.UIText) {
-          const card = new xb.UICard({
-            width: 1.1,
-            height: 0.48,
-            backgroundColor: "#FFFFFF",
-            borderRadius: 0.03,
-          });
-          card.position.set(0, 1.42, -1.55);
-          this.headerText = new xb.UIText({
-            text: "EDimbESS Spatial Now Gate",
-            fontSize: 0.042,
-            color: "#1C2430",
-          });
-          this.subText = new xb.UIText({
-            text: "Calibrated Safe-Gate & Framing-Blind Queue Ring",
-            fontSize: 0.028,
-            color: "#434E5E",
-          });
-          card.add(this.headerText);
-          card.add(this.subText);
-          this.add(card);
-        }
-
-        this.syncFromAppState(state);
-      }
-
-      clearRingDisposables() {
-        while (this.ringGroup.children.length > 0) {
-          const child = this.ringGroup.children.pop();
-          this.ringGroup.remove(child);
-        }
-        for (const item of this.disposables) {
-          if (item && typeof item.dispose === "function") item.dispose();
-        }
-        this.disposables = [];
-      }
-
-      syncFromAppState(appState) {
-        this.clearRingDisposables();
-        const pkts = appState.packets || [];
-        const active = activePacket();
-
-        if (active && this.headerText && typeof this.headerText.setText === "function") {
-          this.headerText.setText(`${active.packet_id} · ${active.encounter?.chief_complaint || ""}`);
-          this.subText?.setText(
-            `${active.safe_gate?.gate_label || ""} · p2=${((active.safe_gate?.p2_calibrated || 0) * 100).toFixed(1)}%`
-          );
-        }
-
-        const n = Math.max(1, pkts.length);
-        pkts.forEach((pkt, idx) => {
-          const angle = (idx / n) * Math.PI * 2 - Math.PI / 2;
-          const radius = 1.18;
-          // Height driven strictly by calibrated Framing-Blind / Stage-2 posterior (never raw badge counts!)
-          const pCal = Math.max(
-            pkt.safe_gate?.p1_framing_blind || 0.02,
-            pkt.safe_gate?.p2_calibrated || 0.02
-          );
-          const h = 0.08 + 0.42 * Math.min(1, pCal);
-          const gate = pkt.safe_gate?.gate_state;
-          const hex =
-            gate === "CERTIFIED_SAFE_ROUTINE"
-              ? 0x1e5631
-              : gate === "AMBIGUOUS_HOLD_VOI"
-              ? 0x9a6700
-              : 0x9e2020;
-
-          const geo = new THREE.CylinderGeometry(0.036, 0.036, h, 20);
-          const mat = new THREE.MeshStandardMaterial({
-            color: hex,
-            roughness: 0.35,
-            metalness: 0.1,
-            emissive: pkt.packet_id === appState.selectedPacketId ? hex : 0x000000,
-            emissiveIntensity: pkt.packet_id === appState.selectedPacketId ? 0.35 : 0.0,
-          });
-          this.disposables.push(geo, mat);
-
-          const totem = new THREE.Mesh(geo, mat);
-          totem.position.set(
-            Math.cos(angle) * radius,
-            0.65 + h / 2,
-            -1.6 + Math.sin(angle) * radius
-          );
-          totem.userData = {
-            packetId: pkt.packet_id,
-            pointerEvents: "auto",
-            manipulation: true,
-          };
-          totem.onSelect = (ev) => {
-            if (ev && typeof ev.stopPropagation === "function") ev.stopPropagation();
-            state.selectedPacketId = pkt.packet_id;
-            renderAll();
-          };
-          this.ringGroup.add(totem);
-        });
-      }
-
-      dispose() {
-        this.clearRingDisposables();
-      }
-    }
-
-    const scriptInstance = new EDTriagePITMApp();
-    state.xrInstance = scriptInstance;
-    if (typeof xb.init === "function") {
-      const opts = xb.Options ? new xb.Options() : {};
-      opts.container = host;
-      await xb.init(opts);
-      if (xb.core?.scene) {
-        xb.core.scene.add(scriptInstance);
-        scriptInstance.init();
-      }
-    }
-  } catch {
-    // Offline or non-WebGL headless test browser: 2D Clinical Daylight Workbench remains 100% active.
-  }
-}
-
-/* --------------------------------------------------------------------------
  * Event Delegation
  * -------------------------------------------------------------------------- */
 function bindEvents() {
   document.addEventListener("click", (ev) => {
+    const viewTab = ev.target.closest("[data-view-tab]");
+    if (viewTab) {
+      setViewMode(viewTab.dataset.viewTab);
+      return;
+    }
+
+    const switchBtn = ev.target.closest("[data-switch-tab]");
+    if (switchBtn) {
+      setViewMode(switchBtn.dataset.switchTab);
+      return;
+    }
+
     const capBtn = ev.target.closest("[data-cap-key]");
     if (capBtn) {
       updateCapacity(capBtn.dataset.capKey, Number(capBtn.dataset.capDelta));
@@ -1113,24 +1556,25 @@ function bindEvents() {
 
     const closeDlgBtn = ev.target.closest("[data-close-dialog]");
     if (closeDlgBtn) {
-      const dlg = document.getElementById(closeDlgBtn.dataset.closeDialog);
-      if (dlg) dlg.close();
+      document.getElementById(closeDlgBtn.dataset.closeDialog)?.close();
       return;
     }
 
-    if (ev.target.closest("#btn-fastpass-routine") || ev.target.closest("#btn-accept-all-reviewed")) {
-      commitDecisionsForActivePacket(true);
+    const actBtn = ev.target.closest("[data-action]");
+    if (actBtn) {
+      const act = actBtn.dataset.action;
+      if (act === "fastpass-routine" || act === "accept-all-reviewed") {
+        commitDecisionsForActivePacket(true);
+      } else if (act === "commit-five") {
+        commitDecisionsForActivePacket(false);
+      } else if (act === "prefetch-voi") {
+        prefetchHighVoiChannels();
+      }
       return;
     }
 
-    if (ev.target.closest("#btn-commit-five")) {
-      commitDecisionsForActivePacket(false);
-      return;
-    }
-
-    if (ev.target.closest("#btn-prefetch-voi")) {
-      prefetchHighVoiChannels();
-      return;
+    if (ev.target.closest("#btn-reset-camera")) {
+      state.spatialStage?.resetCamera();
     }
   });
 
@@ -1195,21 +1639,7 @@ function bindEvents() {
 
   document.getElementById("btn-open-ledger")?.addEventListener("click", openLedgerDialog);
   document.getElementById("btn-open-audit")?.addEventListener("click", openAuditDialog);
-
-  document.getElementById("btn-toggle-spatial")?.addEventListener("click", (ev) => {
-    state.spatialMode = !state.spatialMode;
-    document.body.classList.toggle("xr-spatial-mode", state.spatialMode);
-    const btn = ev.currentTarget;
-    btn.setAttribute("aria-pressed", String(state.spatialMode));
-    const lbl = document.getElementById("spatial-btn-label");
-    if (lbl) lbl.textContent = state.spatialMode ? "Return to Clinical Desk" : "3D Spatial XR";
-    if (state.spatialMode && !state.xrInstance) {
-      initSpatialXRIfAvailable();
-    }
-  });
 }
 
 bindEvents();
-loadInitialQueue().then(() => {
-  initSpatialXRIfAvailable();
-});
+loadInitialQueue();
