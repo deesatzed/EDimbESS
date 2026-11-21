@@ -2,58 +2,36 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>EDimbESS · Provider-in-the-Middle ED Triage XR &amp; Statistical Safety Engine</title>
+  <title>EDimbESS · Provider-in-the-Middle ED Triage Crossroads &amp; Spatial XR</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="/styles.css" />
-  <!-- Three.js r184 + XR Blocks v0.21.1 Import Map -->
   <script type="importmap">
   {
     "imports": {
       "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.js",
-      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/",
-      "@pmndrs/uikit": "https://cdn.jsdelivr.net/npm/@pmndrs/uikit@1.0.64/+esm",
-      "@pmndrs/uikit-lucide": "https://cdn.jsdelivr.net/npm/@pmndrs/uikit-lucide@1.0.51/+esm",
-      "yoga-layout": "https://cdn.jsdelivr.net/npm/yoga-layout@3.2.1/+esm",
-      "lit": "https://cdn.jsdelivr.net/npm/lit@3.3.1/+esm",
-      "lit/": "https://cdn.jsdelivr.net/npm/lit@3.3.1/",
-      "xrblocks": "https://cdn.jsdelivr.net/npm/xrblocks@0.21.1/build/xrblocks.js",
-      "xrblocks/addons/": "https://cdn.jsdelivr.net/npm/xrblocks@0.21.1/build/addons/"
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/"
     }
   }
   </script>
 </head>
-<body data-view-mode="focused">
-  <!-- Top Operational Header (Always accessible across Focused, Workbench, and 3D Spatial tabs) -->
+<body data-view-mode="crossroads">
+  <!-- Top Operational Header -->
   <header class="top-bar">
     <div class="brand-group">
       <div>
-        <h1 class="brand-title">ED Triage · PITM Safety Engine</h1>
-        <p class="brand-sub">Provider-in-the-Middle Now Gate · Conformal Safe-Gate · Martingale VOI · Orthogonal Delta</p>
+        <h1 class="brand-title">ED Triage · PITM Crossroads</h1>
+        <p class="brand-sub">Provider-in-the-Middle Decision Router · Synthetic Research Environment · Zero PHI</p>
       </div>
-      <span class="research-pill" title="Research and simulation environment only. Never enter real patient identifiers.">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-        </svg>
-        Research Only · Zero PHI
-      </span>
     </div>
 
-    <!-- Primary Workspace Mode Tabs -->
-    <nav class="mode-tabs" role="tablist" aria-label="Workspace view mode">
-      <button type="button" role="tab" class="mode-tab" data-view-tab="focused" aria-selected="true">
+    <!-- Primary Mode Switcher -->
+    <nav class="mode-tabs" role="tablist" aria-label="Workspace mode">
+      <button type="button" role="tab" class="mode-tab" data-view-tab="crossroads" aria-selected="true">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <polyline points="9 11 12 14 22 4"></polyline>
           <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
         </svg>
-        Focused Action
-      </button>
-      <button type="button" role="tab" class="mode-tab" data-view-tab="workbench" aria-selected="false">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-          <rect x="3" y="3" width="7" height="18" rx="1"></rect>
-          <rect x="14" y="3" width="7" height="8" rx="1"></rect>
-          <rect x="14" y="15" width="7" height="6" rx="1"></rect>
-        </svg>
-        Full Workbench
+        Provider Crossroads
       </button>
       <button type="button" role="tab" class="mode-tab" data-view-tab="spatial" aria-selected="false">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -63,9 +41,13 @@
         </svg>
         3D Spatial XR
       </button>
+      <button type="button" role="tab" class="mode-tab" data-view-tab="engine" aria-selected="false">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+        </svg>
+        Statistical Engine
+      </button>
     </nav>
-
-    <div class="capacity-strip" id="capacity-strip" aria-label="ED treatment space capacity controls"></div>
 
     <div class="toolbar-actions">
       <button type="button" class="btn" id="btn-open-intake">
@@ -74,74 +56,75 @@
           <polyline points="17 8 12 3 7 8"></polyline>
           <line x1="12" y1="3" x2="12" y2="15"></line>
         </svg>
-        Intake
+        Load Packet
       </button>
       <button type="button" class="btn" id="btn-open-ledger">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-          <polyline points="14 2 14 8 20 8"></polyline>
-        </svg>
         Ledger (<span id="ledger-count" class="tabular">0</span>)
       </button>
-      <button type="button" class="btn btn-primary" id="btn-open-audit">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
-        </svg>
+      <button type="button" class="btn" id="btn-open-audit">
         Audit Receipt
       </button>
     </div>
   </header>
 
-  <!-- 2D Clinical Views (Focused Action & Full Workbench) -->
-  <div id="clinical-desk-shell">
-    <main class="workbench-grid" id="workbench-grid">
-      <!-- Left Rail: Arrival Queue -->
-      <aside class="panel-surface queue-rail" aria-label="Post-triage ED arrival queue">
-        <div class="rail-header">
-          <div class="rail-title-row">
-            <h2 class="rail-title">Post-Triage Queue</h2>
-            <span class="rail-count" id="queue-summary-count">0 arrivals</span>
-          </div>
-          <div class="filter-tabs" role="toolbar" aria-label="Filter queue by Safe-Gate state">
-            <button type="button" class="filter-chip" data-filter="ALL" aria-pressed="true">All</button>
-            <button type="button" class="filter-chip" data-filter="SENTINEL_ESCALATION" aria-pressed="false">Escalation</button>
-            <button type="button" class="filter-chip" data-filter="AMBIGUOUS_HOLD_VOI" aria-pressed="false">Hold · VOI</button>
-            <button type="button" class="filter-chip" data-filter="CERTIFIED_SAFE_ROUTINE" aria-pressed="false">Certified Safe</button>
-            <button type="button" class="filter-chip" data-filter="REVIEWED" aria-pressed="false">Reviewed</button>
-          </div>
+  <!-- Situational Awareness Strip: Live Station Routing Counters + ED Capacity (Visible in 2D Modes) -->
+  <section class="situational-strip" id="situational-strip" aria-label="Department routing and bed capacity">
+    <div class="routed-stations-bar" id="routed-stations-bar"></div>
+    <div class="capacity-strip" id="capacity-strip"></div>
+  </section>
+
+  <!-- Mode 1: 2D Provider Crossroads (Clean, Fast, Zero Math Jargon) -->
+  <main id="crossroads-desk" class="crossroads-grid" aria-label="Provider Crossroads workspace">
+    <aside class="panel-surface queue-rail" aria-label="Up Next ED arrival queue">
+      <div class="rail-header">
+        <div class="rail-title-row">
+          <h2 class="rail-title">Up Next</h2>
+          <span class="rail-count" id="queue-summary-count">0 queued</span>
         </div>
-        <div class="queue-list" id="queue-list"></div>
-      </aside>
+        <div class="filter-tabs" role="toolbar" aria-label="Filter arrivals">
+          <button type="button" class="filter-chip" data-filter="PENDING" aria-pressed="true">Pending</button>
+          <button type="button" class="filter-chip" data-filter="HARD_TRIGGER" aria-pressed="false">Hard Trigger</button>
+          <button type="button" class="filter-chip" data-filter="CERTIFIED_SAFE_ROUTINE" aria-pressed="false">Fast-Pass</button>
+          <button type="button" class="filter-chip" data-filter="REVIEWED" aria-pressed="false">Routed</button>
+          <button type="button" class="filter-chip" data-filter="ALL" aria-pressed="false">All</button>
+        </div>
+      </div>
+      <div class="queue-list" id="queue-list"></div>
+    </aside>
 
-      <!-- Center Column: Focused Action Gate OR Full Workbench Gate -->
-      <section class="now-gate-col" id="now-gate-root" aria-label="Active patient Now Gate"></section>
+    <!-- Center: The One Crossroads Now Card -->
+    <section class="crossroads-center" id="crossroads-now-root" aria-label="Active patient decision card"></section>
 
-      <!-- Right Rail: Quantitative Statistical Safety & VOI (Visible in Full Workbench tab) -->
-      <aside class="panel-surface safety-rail" id="safety-rail-root" aria-label="Calibrated risk, conformal bounds, and VOI channel routing"></aside>
-    </main>
-  </div>
+    <!-- Right Contextual Wing (Opens on Ask-Next, Details, Modify, or Station Click) -->
+    <aside class="panel-surface crossroads-side-wing" id="crossroads-wing-root" hidden aria-label="Contextual detail or Ask-Next panel"></aside>
+  </main>
 
-  <!-- 3D Spatial XR Stage (Interactive Three.js WebGL Cockpit + WebXR / XR Blocks Bridge) -->
-  <section id="spatial-stage-wrap" aria-label="3D Spatial Triage Stage" hidden>
+  <!-- Mode 2: 3D Spatial XR Crossroads (SDR-Inspired Immersive Routing Arena) -->
+  <section id="spatial-stage-wrap" aria-label="3D Spatial Decision Crossroads" hidden>
     <div id="xr-canvas-host"></div>
 
-    <!-- Spatial Overlay HUD: Active Patient Action Card -->
-    <div class="spatial-overlay-card" id="spatial-patient-hud"></div>
+    <!-- Top Floating Throughput & Live Routing Board -->
+    <div class="xr-top-board" id="xr-top-board"></div>
 
-    <!-- Spatial Overlay Legend & Controls -->
-    <div class="spatial-legend-bar">
-      <div class="legend-items">
-        <span class="legend-dot dot-crit"></span><span>Sentinel Escalation</span>
-        <span class="legend-dot dot-hold"></span><span>Hold · VOI Pre-Fetch</span>
-        <span class="legend-dot dot-safe"></span><span>Conformal Certified Safe</span>
-        <span class="spatial-hint">Drag to orbit · Scroll to zoom · Click any 3D patient totem or center bed pillar</span>
-      </div>
-      <div style="display:flex;gap:8px;align-items:center;">
-        <button type="button" class="btn" id="btn-reset-camera">Reset Camera</button>
-        <button type="button" class="btn btn-primary" id="btn-enter-webxr" hidden>Enter WebXR Headset</button>
+    <!-- Three-Panel Spatial Cockpit (Left Wing · Center NOW Card · Right Up-Next Wing) -->
+    <div class="xr-cockpit-row">
+      <aside class="xr-wing xr-wing-left" id="xr-left-wing" hidden></aside>
+      <section class="xr-center-card" id="xr-center-card"></section>
+      <aside class="xr-wing xr-wing-right" id="xr-right-wing"></aside>
+    </div>
+
+    <!-- Subtle Bottom Spatial Controls -->
+    <div class="xr-bottom-controls">
+      <span>Click any 3D queue sphere or station orb · Drag upper space to orbit · Spacebar = Approve &amp; Route</span>
+      <div style="display:flex;gap:8px;">
+        <button type="button" class="xr-mini-btn" id="btn-reset-camera">Reset View</button>
+        <button type="button" class="xr-mini-btn" id="btn-enter-webxr" hidden>Enter WebXR Headset</button>
       </div>
     </div>
   </section>
+
+  <!-- Mode 3: Statistical Safety Engine Workbench (For Researchers & Calibration Auditing) -->
+  <section id="engine-workbench-wrap" class="engine-grid" hidden aria-label="Statistical Safety Engine research view"></section>
 
   <!-- Toast Feedback -->
   <div class="toast-banner" id="toast-banner" role="status" aria-live="polite" hidden></div>
@@ -149,17 +132,17 @@
   <!-- Dialog 1: Zero-PHI Synthetic Packet Intake -->
   <dialog class="clinical-dialog" id="dialog-intake">
     <div class="dialog-head">
-      <h2 class="dialog-title">Synthetic Packet Intake (Zero-PHI Gate)</h2>
+      <h2 class="dialog-title">Load Synthetic Packet (Zero-PHI Gate)</h2>
       <button type="button" class="btn" data-close-dialog="dialog-intake">Close</button>
     </div>
     <div class="dialog-body">
       <p style="margin-top:0;color:var(--ink-secondary);">
-        Upload or paste synthetic JSON matching <code>syn-ED-###</code>. Any payload containing patient names, dates of birth, MRNs, SSNs, phone numbers, or email addresses is automatically rejected before entering memory.
+        Paste synthetic JSON matching <code>syn-ED-###</code>. Patient names, DOB, MRN, SSN, phone numbers, and emails are rejected before entering memory.
       </p>
       <textarea id="intake-json-input" class="intake-textarea" spellcheck="false"></textarea>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:10px;flex-wrap:wrap;">
-        <button type="button" class="btn" id="btn-load-sample-intake">Load Sample Ambiguous Case (syn-ED-099)</button>
-        <button type="button" class="btn btn-primary" id="btn-submit-intake">Validate &amp; Evaluate Packet</button>
+        <button type="button" class="btn" id="btn-load-sample-intake">Load Sample Case (syn-ED-099)</button>
+        <button type="button" class="btn btn-primary" id="btn-submit-intake">Validate &amp; Load</button>
       </div>
       <p id="intake-feedback" style="margin:10px 0 0;font-weight:600;"></p>
     </div>

@@ -187,8 +187,8 @@
     "validator_failures": [],
     "gate_state_counts": {
       "SENTINEL_ESCALATION": 17,
-      "AMBIGUOUS_HOLD_VOI": 3,
-      "CERTIFIED_SAFE_ROUTINE": 2
+      "CERTIFIED_SAFE_ROUTINE": 3,
+      "AMBIGUOUS_HOLD_VOI": 2
     },
     "packets": [
       {
@@ -215,14 +215,12 @@
         "delta_priority": "ROUTINE",
         "n_orthogonal_findings": 0,
         "distinct_mechanisms": 0,
-        "gate_state": "AMBIGUOUS_HOLD_VOI",
-        "allow_one_pinch_routine": false,
+        "gate_state": "CERTIFIED_SAFE_ROUTINE",
+        "allow_one_pinch_routine": true,
         "p1_calibrated": 0.0225,
         "p2_calibrated": 0.014,
         "bundle_voi": 0.0497,
-        "auto_triggered_channels": [
-          "ch_recent_labs_di"
-        ],
+        "auto_triggered_channels": [],
         "triage_voi_zero_already_above_tau": false
       },
       {
@@ -239,7 +237,6 @@
         "p2_calibrated": 0.1078,
         "bundle_voi": 0.1964,
         "auto_triggered_channels": [
-          "ch_hie_outside",
           "ch_bedside_ask_probe"
         ],
         "triage_voi_zero_already_above_tau": false
@@ -274,11 +271,6 @@
         "p2_calibrated": 0.0111,
         "bundle_voi": 0.4091,
         "auto_triggered_channels": [
-          "ch_hie_outside",
-          "ch_dispense_pdmp",
-          "ch_micro_cultures",
-          "ch_recent_labs_di",
-          "ch_social_isolation",
           "ch_bedside_ask_probe"
         ],
         "triage_voi_zero_already_above_tau": false
@@ -298,7 +290,6 @@
         "bundle_voi": 0.1944,
         "auto_triggered_channels": [
           "ch_hie_outside",
-          "ch_recent_labs_di",
           "ch_bedside_ask_probe"
         ],
         "triage_voi_zero_already_above_tau": false
@@ -349,11 +340,6 @@
         "p2_calibrated": 0.0152,
         "bundle_voi": 0.3492,
         "auto_triggered_channels": [
-          "ch_hie_outside",
-          "ch_dispense_pdmp",
-          "ch_micro_cultures",
-          "ch_recent_labs_di",
-          "ch_social_isolation",
           "ch_bedside_ask_probe"
         ],
         "triage_voi_zero_already_above_tau": false
@@ -453,10 +439,6 @@
         "bundle_voi": 0.4095,
         "auto_triggered_channels": [
           "ch_hie_outside",
-          "ch_dispense_pdmp",
-          "ch_micro_cultures",
-          "ch_recent_labs_di",
-          "ch_social_isolation",
           "ch_bedside_ask_probe"
         ],
         "triage_voi_zero_already_above_tau": false
@@ -554,9 +536,7 @@
         "p1_calibrated": 0.0963,
         "p2_calibrated": 0.3996,
         "bundle_voi": 0.1836,
-        "auto_triggered_channels": [
-          "ch_hie_outside"
-        ],
+        "auto_triggered_channels": [],
         "triage_voi_zero_already_above_tau": false
       },
       {

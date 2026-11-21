@@ -403,23 +403,34 @@ def test_seed_packets_safe_gate_and_voi_classifications(
 ) -> None:
     evaluated = {p["packet_id"]: p for p in safety_engine.evaluate_seed_queue()}
 
-    # Low-risk uncomplicated arrivals earn Conformal Certified Safe Routine (1-pinch unlocked)
-    for safe_id in ("syn-ED-012", "syn-ED-014"):
+    # Low-risk uncomplicated arrivals (including syn-ED-002 whose labs/CT are already in chart)
+    # earn Conformal Certified Safe Routine with zero bogus VOI channel pre-fetch prompts
+    for safe_id in ("syn-ED-002", "syn-ED-012", "syn-ED-014"):
         assert evaluated[safe_id]["safe_gate"]["gate_state"] == "CERTIFIED_SAFE_ROUTINE"
         assert evaluated[safe_id]["safe_gate"]["allow_one_pinch_routine"] is True
+        assert evaluated[safe_id]["voi_routing"]["auto_triggered_channels"] == []
 
-    # Ambiguous dizziness with pending EKG & missing HIE holds fast-pass & triggers VOI pre-fetch
+    # Every packet carries explicit clinician-first routing destinations & zero-jargon why_queued
+    for pkt in evaluated.values():
+        cr = pkt["clinical_routing"]
+        assert len(cr["why_queued"]) >= 1
+        assert len(cr["what_happens_next"]) >= 1
+
+    # Ambiguous dizziness with pending EKG & missing HIE holds fast-pass & surfaces named checks
     amb = evaluated["syn-ED-006"]
     assert amb["safe_gate"]["gate_state"] == "AMBIGUOUS_HOLD_VOI"
     assert amb["safe_gate"]["allow_one_pinch_routine"] is False
     assert len(amb["voi_routing"]["auto_triggered_channels"]) >= 1
+    q_ids = {q["id"] for q in amb["clinical_routing"]["actionable_queries"]}
+    assert {"req_ekg", "ch_hie_outside"} <= q_ids
 
-    # Shock (syn-ED-008) & STEMI missing D2B (syn-ED-011): High Risk != High VOI (act immediately!)
+    # Shock (syn-ED-008) & STEMI missing D2B (syn-ED-011): Hard Trigger + High Risk != High VOI
     for acute_id in ("syn-ED-008", "syn-ED-011"):
         pkt_a = evaluated[acute_id]
         assert pkt_a["safe_gate"]["gate_state"] == "SENTINEL_ESCALATION"
         assert pkt_a["safe_gate"]["allow_one_pinch_routine"] is False
         assert pkt_a["voi_routing"]["triage_voi_zero_already_above_tau"] is True
+        assert pkt_a["clinical_routing"]["hard_trigger"]["active"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -496,7 +507,7 @@ def test_http_api_and_hash_chained_ledger_roundtrip(
     st_root, ctype_root, html_bytes = _dispatch_raw_http(handler_cls, "/")
     assert st_root == 200
     assert "text/html" in ctype_root
-    assert "ED Triage · PITM Safety Engine" in html_bytes.decode("utf-8")
+    assert "ED Triage · PITM Crossroads" in html_bytes.decode("utf-8")
 
     st_h, health = _http_json(handler_cls, "/api/health")
     assert st_h == 200 and health["status"] == "ok"

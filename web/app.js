@@ -1,25 +1,36 @@
 /**
- * EDimbESS Frontend Controller:
- * - Tab 1: Focused Action (calm, scannable key-actions view with progressive disclosure)
- * - Tab 2: Full Workbench (complete 3-column clinical + statistical desk)
- * - Tab 3: 3D Spatial XR (interactive Three.js r184 WebGL cockpit + XR Blocks / WebXR bridge)
+ * EDimbESS Provider Crossroads & 3D Spatial HITM Controller
+ * - Tab 1 (Provider Crossroads): Zero-jargon rapid clinical card, explicit station routing,
+ *   zero-typing Modify pills, concrete Ask-Next actions, and clickable station manifests.
+ * - Tab 2 (3D Spatial XR): SDR-inspired immersive routing arena with curved dark grid stage,
+ *   horizon queue spheres, upstream input beams, downstream destination spheres with live
+ *   `received N` counters, animated 3D handoff particles, top Throughput Board, and angled wings.
+ * - Tab 3 (Statistical Engine): Complete quantitative research workbench (p1/p2, tau*, CfBH,
+ *   9-node Gauss-Hermite VOI, G_{m|S} trace, and Neyman Shadow Ledger Audit).
  */
 
-const DECISION_TITLES = {
-  triage_status: "1. Triage Acuity Status",
-  eval_upgrade: "2. Arrival Door Evaluation (Trauma / Neuro / D2B)",
-  space_priority: "3. Treatment Space Assignment",
-  wr_orders: "4. Waiting-Room Order Set",
-  wr_meds: "5. Waiting-Room Policy Medications",
-};
+const STATIONS = [
+  { id: "alert_team", label: "Alert & Resus Team", short: "Alert Team", dotCls: "dot-alert", hex: 0xc9352b },
+  { id: "bed_board", label: "Charge Nurse & Bed Board", short: "Bed Board", dotCls: "dot-bed", hex: 0x3b82f6 },
+  { id: "wr_orders", label: "WR Orders & Meds", short: "Orders & Meds", dotCls: "dot-orders", hex: 0xeab308 },
+  { id: "fast_track", label: "Fast Track / Waitboard", short: "Fast Track", dotCls: "dot-fast", hex: 0x22c55e },
+];
 
-const SUPPRESSED_REASON_LABELS = {
-  1: "Reason 1 · Triage echo suppressed (already explicit on door header)",
-  2: "Reason 2 · Out-of-window historical item",
-  3: "Reason 3 · Duplicate of active standing order",
-  4: "Reason 4 · Collinear Stage-2 twin pruned via G_{m|S}",
-  cap: "Cap · Below top-3 conditional gain cutoff",
-};
+const SPACE_CHOICES = [
+  ["immediate", "Immediate Resus"],
+  ["next_bed", "Next Bed"],
+  ["bed", "Staffed Bed"],
+  ["hallway", "Hallway"],
+  ["fast_track", "Fast Track"],
+  ["waiting_room", "Waitboard"],
+];
+
+const PRESET_OVERRIDE_REASONS = [
+  "Chart sentinel or vital trajectory warrants higher acuity",
+  "Bedside exam and repeat vitals stable for waiting-room pathway",
+  "Anticoagulation, renal, or hepatic medication contraindication",
+  "Direct verbal handoff completed with charge nurse / team",
+];
 
 const SAMPLE_INTAKE_PACKET = {
   packet_id: "syn-ED-099",
@@ -56,7 +67,7 @@ const SAMPLE_INTAKE_PACKET = {
 };
 
 const state = {
-  viewMode: "focused", // "focused" | "workbench" | "spatial"
+  viewMode: "crossroads", // "crossroads" | "spatial" | "engine"
   capacity: {
     bedsOpen: 3,
     bedsTotal: 18,
@@ -68,11 +79,27 @@ const state = {
   },
   packets: [],
   selectedPacketId: null,
-  activeFilter: "ALL",
+  activeFilter: "PENDING",
+  wingMode: null, // null | "details" | "ask" | "modify" | "station:alert_team" ...
   reviewedPacketIds: new Set(),
-  draftDecisions: {},
+  routedHistory: [], // [{ packetId, ageSex, chief, headline, routes, modified, ts }]
+  routedByStation: {
+    alert_team: [],
+    bed_board: [],
+    wr_orders: [],
+    fast_track: [],
+  },
+  stats: {
+    reviewed: 0,
+    decisions: 0,
+    hardTriggers: 0,
+    fastPassed: 0,
+    overrides: 0,
+    asksSent: 0,
+  },
+  modifyDraft: null, // { packetId, esi, space, evalNeed, holdOrders, medChoice, reason }
   ledgerCount: 0,
-  spatialStage: null,
+  spatialArena: null,
 };
 
 function esc(val) {
@@ -87,16 +114,6 @@ function pct(v) {
   return `${((Number(v) || 0) * 100).toFixed(1)}%`;
 }
 
-function iconSvg(kind) {
-  if (kind === "check") {
-    return `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
-  }
-  if (kind === "hold") {
-    return `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>`;
-  }
-  return `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>`;
-}
-
 let toastTimer = null;
 function showToast(msg) {
   const el = document.getElementById("toast-banner");
@@ -106,243 +123,142 @@ function showToast(msg) {
   if (toastTimer) clearTimeout(toastTimer);
   toastTimer = setTimeout(() => {
     el.hidden = true;
-  }, 4200);
+  }, 3800);
+}
+
+function esiNum(esiStr) {
+  const m = /\d/.exec(String(esiStr || "3"));
+  return m ? Number(m[0]) : 3;
 }
 
 function esiBadgeClass(esiStr) {
-  const num = String(esiStr || "ESI-3").replace(/\D/g, "") || "3";
-  return `badge badge-esi-${num}`;
+  return `badge badge-esi-${esiNum(esiStr)}`;
 }
 
-function gateBadgeHtml(gateState) {
-  if (gateState === "CERTIFIED_SAFE_ROUTINE") {
-    return `<span class="badge badge-gate-safe">${iconSvg("check")} Certified Safe</span>`;
+function clinicalGateBadge(pkt, dark = false) {
+  const cr = pkt.clinical_routing || {};
+  const gs = pkt.safe_gate?.gate_state;
+  if (cr.hard_trigger?.active) {
+    return `<span class="${dark ? "xr-why-chip crit" : "badge badge-gate-crit"}">Hard Trigger</span>`;
   }
-  if (gateState === "AMBIGUOUS_HOLD_VOI") {
-    return `<span class="badge badge-gate-hold">${iconSvg("hold")} Hold · VOI</span>`;
+  if (gs === "CERTIFIED_SAFE_ROUTINE") {
+    return `<span class="badge badge-gate-safe">Safe Fast-Pass</span>`;
   }
-  return `<span class="badge badge-gate-crit">${iconSvg("alert")} Escalation</span>`;
+  if (gs === "AMBIGUOUS_HOLD_VOI") {
+    return `<span class="${dark ? "xr-why-chip" : "badge badge-gate-hold"}">Needs Check / Sign-Off</span>`;
+  }
+  return `<span class="${dark ? "xr-why-chip crit" : "badge badge-gate-crit"}">Escalate Review</span>`;
 }
 
-function ensureDraftForPacket(pkt) {
-  if (!pkt) return {};
-  if (!state.draftDecisions[pkt.packet_id]) {
-    const map = {};
-    for (const rec of pkt.recommendations || []) {
-      map[rec.type] = {
-        action: "accept",
-        overrideReason: "",
-        finalText: rec.proposal,
-      };
-    }
-    state.draftDecisions[pkt.packet_id] = map;
-  }
-  return state.draftDecisions[pkt.packet_id];
+function sortedPackets() {
+  const tierWeight = (p) => {
+    if (state.reviewedPacketIds.has(p.packet_id)) return 9;
+    if (p.clinical_routing?.hard_trigger?.active) return 0;
+    if (p.safe_gate?.gate_state === "SENTINEL_ESCALATION") return 1;
+    if (p.safe_gate?.gate_state === "AMBIGUOUS_HOLD_VOI") return 2;
+    return 3;
+  };
+  return [...state.packets].sort((a, b) => {
+    const tw = tierWeight(a) - tierWeight(b);
+    if (tw !== 0) return tw;
+    const ed =
+      esiNum(a.recommendations?.[0]?.value?.triage_status) -
+      esiNum(b.recommendations?.[0]?.value?.triage_status);
+    if (ed !== 0) return ed;
+    return (b.encounter?.arrival_minutes_ago || 0) - (a.encounter?.arrival_minutes_ago || 0);
+  });
 }
 
 function activePacket() {
-  return state.packets.find((p) => p.packet_id === state.selectedPacketId) || state.packets[0] || null;
+  const ordered = sortedPackets();
+  return ordered.find((p) => p.packet_id === state.selectedPacketId) || ordered[0] || null;
+}
+
+function ensureModifyDraft(pkt) {
+  if (!pkt) return null;
+  if (!state.modifyDraft || state.modifyDraft.packetId !== pkt.packet_id) {
+    const recs = pkt.recommendations || [];
+    state.modifyDraft = {
+      packetId: pkt.packet_id,
+      esi: recs[0]?.value?.triage_status || pkt.encounter?.triage_status || "ESI-3",
+      evalNeed: (recs[1]?.value?.needs || [])[0] || "none",
+      space: recs[2]?.value?.priority || "bed",
+      holdOrders: false,
+      medChoice: "recommended",
+      reason: PRESET_OVERRIDE_REASONS[0],
+    };
+  }
+  return state.modifyDraft;
 }
 
 /* --------------------------------------------------------------------------
- * Shared Reusable Builders (Decisions Rows, Dossier Summary, Safety Tables)
+ * Top Situational Strip: Station Routing Counters + ED Capacity
  * -------------------------------------------------------------------------- */
-function buildDecisionRowsHtml(pkt) {
-  const drafts = ensureDraftForPacket(pkt);
-  return (pkt.recommendations || [])
-    .map((rec) => {
-      const d = drafts[rec.type] || { action: "accept", overrideReason: "", finalText: rec.proposal };
-      return `
-        <div class="dec-row ${rec.alert ? "dec-alert" : ""}">
-          <div class="dec-main">
-            <div class="dec-copy">
-              <p class="dec-proposal">${esc(DECISION_TITLES[rec.type] || rec.type)}: ${esc(rec.proposal)}</p>
-              <p class="dec-rationale">${esc(rec.rationale)}</p>
-            </div>
-            <div class="dec-controls" role="group" aria-label="${esc(DECISION_TITLES[rec.type] || rec.type)} action">
-              <button type="button" class="dec-act-btn" data-dec-type="${esc(rec.type)}" data-act="accept" aria-pressed="${d.action === "accept"}">Accept</button>
-              <button type="button" class="dec-act-btn" data-dec-type="${esc(rec.type)}" data-act="change" aria-pressed="${d.action === "change"}">Change</button>
-              <button type="button" class="dec-act-btn" data-dec-type="${esc(rec.type)}" data-act="decline" aria-pressed="${d.action === "decline"}">Decline</button>
-            </div>
-          </div>
-          ${
-            d.action === "change"
-              ? `
-            <div class="override-editor">
-              <input type="text" class="override-input" data-override-final="${esc(rec.type)}" value="${esc(d.finalText)}" placeholder="Specify modified clinical decision…" aria-label="Modified clinical decision" />
-              <input type="text" class="override-input" data-override-reason="${esc(rec.type)}" value="${esc(d.overrideReason)}" placeholder="Override rationale (minimum 8 characters required)…" aria-label="Override rationale" />
-            </div>
-          `
-              : ""
-          }
-        </div>
-      `;
-    })
-    .join("");
-}
-
-function buildGateActionButtons(pkt) {
-  const sg = pkt.safe_gate || {};
-  const vr = pkt.voi_routing || {};
-  const gateState = sg.gate_state || "SENTINEL_ESCALATION";
-
-  if (sg.allow_one_pinch_routine) {
-    return `
-      <button type="button" class="btn btn-safe" data-action="fastpass-routine">
-        ${iconSvg("check")} Accept Routine — Certified Safe (1-Pinch)
-      </button>
-    `;
+function renderSituationalStrip() {
+  const stHost = document.getElementById("routed-stations-bar");
+  const capHost = document.getElementById("capacity-strip");
+  if (stHost) {
+    stHost.innerHTML =
+      `<span class="tabular" style="font-size:12.5px;font-weight:700;color:var(--ink-secondary);margin-right:4px;">Routed (${state.stats.reviewed}/${state.packets.length}):</span>` +
+      STATIONS.map((st) => {
+        const cnt = (state.routedByStation[st.id] || []).length;
+        const active = state.wingMode === `station:${st.id}`;
+        return `
+          <button type="button" class="station-pill" data-open-station="${st.id}" aria-pressed="${active}">
+            <span class="station-dot ${st.dotCls}"></span>
+            <span>${esc(st.short)}</span>
+            <span class="station-count">${cnt}</span>
+          </button>
+        `;
+      }).join("");
   }
-  if (gateState === "AMBIGUOUS_HOLD_VOI" && (vr.auto_triggered_channels || []).length > 0) {
-    return `
-      <button type="button" class="btn btn-hold" data-action="prefetch-voi">
-        ${iconSvg("hold")} Pre-Fetch ${vr.auto_triggered_channels.length} High-VOI Channel(s)
-      </button>
-      <button type="button" class="btn btn-primary" data-action="accept-all-reviewed">
-        Commit Recommended Actions
-      </button>
-    `;
-  }
-  return `
-    <button type="button" class="btn btn-crit" data-action="accept-all-reviewed">
-      Commit Escalated Actions
-    </button>
-  `;
-}
 
-function buildSpotdHtml(sw) {
-  return `
-    <div class="spotd-grid" aria-label="Satz-EM SPOT DR cognitive checklist">
-      ${(sw.spotd || [])
-        .map(
-          (cell) => `
-        <div class="spotd-cell ${cell.chart ? "chart-backed" : ""}">
-          <div class="spotd-head">
-            <span class="spotd-letter">${esc(cell.letter)}</span>
-            <span>${esc(cell.label)}</span>
+  if (capHost) {
+    const c = state.capacity;
+    const units = [
+      { key: "bedsOpen", maxKey: "bedsTotal", label: "Beds" },
+      { key: "hallwayOpen", maxKey: "hallwayTotal", label: "Hall" },
+      { key: "fastTrackOpen", maxKey: "fastTrackTotal", label: "Fast" },
+      { key: "waitboard", maxKey: null, label: "Wait" },
+    ];
+    capHost.innerHTML = units
+      .map((u) => {
+        const valText = u.maxKey ? `${c[u.key]}/${c[u.maxKey]}` : `${c[u.key]}`;
+        return `
+          <div class="cap-unit">
+            <span class="cap-label">${esc(u.label)}</span>
+            <button type="button" class="cap-step" data-cap-key="${u.key}" data-cap-delta="-1" aria-label="Decrease ${esc(u.label)}">−</button>
+            <span class="cap-val">${esc(valText)}</span>
+            <button type="button" class="cap-step" data-cap-key="${u.key}" data-cap-delta="1" aria-label="Increase ${esc(u.label)}">+</button>
           </div>
-          <div class="spotd-phrase">${esc(cell.phrase)}</div>
-        </div>
-      `
-        )
-        .join("")}
-    </div>
-  `;
-}
-
-function buildSafetyMetricsInnerHtml(pkt) {
-  const sg = pkt.safe_gate || {};
-  const vr = pkt.voi_routing || {};
-  const channels = vr.channels || [];
-
-  return `
-    <div style="margin-bottom:14px;">
-      <h3 class="section-heading" style="margin-bottom:8px;">
-        <span>Calibrated Risk &amp; Conformal Receipt</span>
-        ${vr.cfbh_alert_certified ? `<span class="badge badge-gate-crit">CfBH Alert Certified</span>` : `<span class="badge badge-neutral">Sub-CfBH</span>`}
-      </h3>
-      <table class="metric-table">
-        <tbody>
-          <tr><th>Stage-1 Door Posterior p₁(x)</th><td class="num">${pct(sg.p1_calibrated)}</td></tr>
-          <tr><th>Framing-Blind Objective p₁,blind(x)</th><td class="num">${pct(sg.p1_framing_blind)}</td></tr>
-          <tr><th>Stage-2 Full Chart Posterior p₂(x)</th><td class="num">${pct(sg.p2_calibrated)}</td></tr>
-          <tr><th>Bayes Escalation Threshold τ*</th><td class="num">${pct(sg.tau_bayes_triage)}</td></tr>
-          <tr><th>Capacity-Adjusted Space τ*space</th><td class="num">${pct(sg.tau_space_capacity_adjusted)}</td></tr>
-          <tr><th>Conformal Safe Routine Cutoff τsafe</th><td class="num">${pct(sg.tau_safe_routine)}</td></tr>
-          <tr><th>Positive Conformal Miss p-value</th><td class="num">${Number(sg.conformal_miss_pvalue ?? 0).toFixed(4)}</td></tr>
-          <tr><th>Cal FOR 95% Wilson Upper Bound</th><td class="num">${pct(sg.cal_for_wilson_upper)}</td></tr>
-          <tr><th>Base-Rate Evidence Deficit Dq(x)</th><td class="num">${Number(sg.evidence_deficit_nats ?? 0).toFixed(2)} nats</td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <div>
-      <h3 class="section-heading" style="margin-bottom:8px;">
-        <span>Decision-Flip VOI Channel Router</span>
-        <span class="badge badge-neutral">9-Node GH</span>
-      </h3>
-      ${
-        vr.triage_voi_zero_already_above_tau
-          ? `<div class="voi-note-box" style="margin-bottom:8px;background:var(--bg-crit);border-color:var(--border-crit);color:var(--ink-crit);font-weight:600;">
-              High Risk ≠ High VOI: Patient is already above τ* (or missing an acute door evaluation). Escalation VOI = 0.000 — act immediately without waiting on external HIE queries.
-            </div>`
-          : `<div class="voi-note-box" style="margin-bottom:8px;">
-              Martingale mean-centered Gauss-Hermite quadrature triggers Stage-2 queries strictly when expected decision-flip gain exceeds query cost c_m.
-            </div>`
-      }
-      <table class="metric-table">
-        <thead>
-          <tr>
-            <th>Stage-2 Channel</th>
-            <th style="text-align:right;">VOI</th>
-            <th style="text-align:right;">Cost</th>
-            <th style="text-align:right;">Route</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${channels
-            .map((ch) => {
-              const routeBadge = ch.unlocked
-                ? `<span class="badge badge-gate-safe">Fetched</span>`
-                : ch.trigger_query
-                ? `<span class="badge badge-gate-hold">Query</span>`
-                : `<span class="badge badge-neutral">Skip</span>`;
-              return `
-                <tr>
-                  <td>${esc(ch.display_name)}</td>
-                  <td class="num">${Number(ch.voi_expected_gain).toFixed(3)}</td>
-                  <td class="num">${Number(ch.query_cost).toFixed(3)}</td>
-                  <td style="text-align:right;">${routeBadge}</td>
-                </tr>
-              `;
-            })
-            .join("")}
-        </tbody>
-      </table>
-    </div>
-  `;
+        `;
+      })
+      .join("");
+  }
 }
 
 /* --------------------------------------------------------------------------
- * Render Top Capacity Strip & Queue Rail
+ * Left Queue Rail (2D Provider Crossroads)
  * -------------------------------------------------------------------------- */
-function renderCapacityStrip() {
-  const host = document.getElementById("capacity-strip");
-  if (!host) return;
-  const c = state.capacity;
-  const units = [
-    { key: "bedsOpen", maxKey: "bedsTotal", label: "Beds" },
-    { key: "hallwayOpen", maxKey: "hallwayTotal", label: "Hallway" },
-    { key: "fastTrackOpen", maxKey: "fastTrackTotal", label: "Fast Track" },
-    { key: "waitboard", maxKey: null, label: "Waitboard" },
-  ];
-  host.innerHTML = units
-    .map((u) => {
-      const valText = u.maxKey ? `${c[u.key]}/${c[u.maxKey]}` : `${c[u.key]}`;
-      return `
-        <div class="cap-unit">
-          <span class="cap-label">${esc(u.label)}</span>
-          <button type="button" class="cap-step" data-cap-key="${u.key}" data-cap-delta="-1" aria-label="Decrease ${esc(u.label)}">−</button>
-          <span class="cap-val">${esc(valText)}</span>
-          <button type="button" class="cap-step" data-cap-key="${u.key}" data-cap-delta="1" aria-label="Increase ${esc(u.label)}">+</button>
-        </div>
-      `;
-    })
-    .join("");
-}
-
 function renderQueue() {
   const listEl = document.getElementById("queue-list");
   const countEl = document.getElementById("queue-summary-count");
   if (!listEl || !countEl) return;
 
-  const filtered = state.packets.filter((pkt) => {
-    if (state.activeFilter === "REVIEWED") return state.reviewedPacketIds.has(pkt.packet_id);
-    if (state.activeFilter === "ALL") return true;
-    return pkt.safe_gate?.gate_state === state.activeFilter;
+  const ordered = sortedPackets();
+  const filtered = ordered.filter((pkt) => {
+    const isRev = state.reviewedPacketIds.has(pkt.packet_id);
+    if (state.activeFilter === "PENDING") return !isRev;
+    if (state.activeFilter === "REVIEWED") return isRev;
+    if (state.activeFilter === "HARD_TRIGGER") return Boolean(pkt.clinical_routing?.hard_trigger?.active);
+    if (state.activeFilter === "CERTIFIED_SAFE_ROUTINE") {
+      return pkt.safe_gate?.gate_state === "CERTIFIED_SAFE_ROUTINE";
+    }
+    return true;
   });
 
-  countEl.textContent = `${filtered.length} of ${state.packets.length} arrivals`;
+  const pendingTotal = ordered.filter((p) => !state.reviewedPacketIds.has(p.packet_id)).length;
+  countEl.textContent = `${pendingTotal} pending · ${state.reviewedPacketIds.size} routed`;
 
   listEl.innerHTML = filtered
     .map((pkt) => {
@@ -352,20 +268,20 @@ function renderQueue() {
       const esiText = proposed !== charted ? `${charted} → ${proposed}` : charted;
       const isSelected = pkt.packet_id === state.selectedPacketId;
       const isReviewed = state.reviewedPacketIds.has(pkt.packet_id);
-      const ekg = pkt.ekg_chip || { status: "na", label: "EKG N/A" };
+      const leadWhy = (pkt.clinical_routing?.why_queued || [])[0] || "";
 
       return `
         <button type="button" class="queue-item" data-select-packet="${esc(pkt.packet_id)}" aria-current="${isSelected ? "true" : "false"}">
           <div class="q-top">
-            <span class="q-id">${esc(pkt.packet_id)}${isReviewed ? " · Committed" : ""}</span>
-            <span class="q-meta">${esc(enc.age_years)}y ${esc(enc.sex)} · ${esc(enc.arrival_mode)} · ${esc(enc.arrival_minutes_ago)}m</span>
+            <span class="q-id">${esc(pkt.packet_id)}${isReviewed ? " · Routed ✓" : ""}</span>
+            <span class="q-meta">${esc(enc.age_years)}${esc(enc.sex)} · ${esc(enc.arrival_minutes_ago)}m</span>
           </div>
           <div class="q-chief">${esc(enc.chief_complaint)}</div>
           <div class="q-badges">
             <span class="${esiBadgeClass(proposed)}">${esc(esiText)}</span>
-            ${gateBadgeHtml(pkt.safe_gate?.gate_state)}
-            <span class="badge badge-neutral">${esc(ekg.label)}</span>
+            ${clinicalGateBadge(pkt)}
           </div>
+          ${leadWhy ? `<div style="margin-top:5px;font-size:12px;color:var(--ink-secondary);">${esc(leadWhy)}</div>` : ""}
         </button>
       `;
     })
@@ -373,556 +289,589 @@ function renderQueue() {
 }
 
 /* --------------------------------------------------------------------------
- * Mode 1: Focused Action View (Calm, Key Actions Only, Progressive Disclosure)
+ * Shared Wing Content Builders (Details, Ask-Next, Zero-Typing Modify, Station Log)
  * -------------------------------------------------------------------------- */
-function renderFocusedNowGate(pkt) {
+function buildWingContentHtml(pkt, dark = false) {
+  if (!state.wingMode) return "";
+
+  // Station Routed Manifest
+  if (state.wingMode.startsWith("station:")) {
+    const stId = state.wingMode.split(":")[1];
+    const stObj = STATIONS.find((s) => s.id === stId) || STATIONS[0];
+    const items = state.routedByStation[stId] || [];
+    return `
+      <div class="wing-head">
+        <h3 class="wing-title">${esc(stObj.label)} (${items.length})</h3>
+        <button type="button" class="${dark ? "xr-mini-btn" : "btn"}" data-close-wing>Hide</button>
+      </div>
+      ${
+        items.length === 0
+          ? `<p style="margin:0;opacity:0.8;">No patients routed to ${esc(stObj.label)} yet in this session. Tap Approve &amp; Route on a card to see live handoffs arrive here.</p>`
+          : items
+              .slice()
+              .reverse()
+              .map(
+                (it) => `
+              <div class="ask-card" style="${dark ? "background:rgba(15,23,42,0.6);border-color:rgba(148,163,184,0.3);color:#F8FAFC;" : ""}">
+                <div style="display:flex;justify-content:space-between;gap:6px;">
+                  <strong>${esc(it.packetId)} · ${esc(it.ageSex)}</strong>
+                  <span style="opacity:0.75;">${esc(it.timeStr)}</span>
+                </div>
+                <div>${esc(it.chief)}</div>
+                <div style="font-weight:700;color:${dark ? "#86EFAC" : "var(--ink-safe)"};">→ ${esc(it.summary)}</div>
+              </div>
+            `
+              )
+              .join("")
+      }
+    `;
+  }
+
+  if (!pkt) return "";
+  const enc = pkt.encounter || {};
+  const dos = pkt.dossier || {};
+  const cr = pkt.clinical_routing || {};
+  const queries = cr.actionable_queries || [];
+
+  // Ask-Next Concrete Actionable Wing
+  if (state.wingMode === "ask") {
+    const pendingQueries = queries;
+    return `
+      <div class="wing-head">
+        <h3 class="wing-title">Ask Next &amp; Missing Checks · ${esc(pkt.packet_id)}</h3>
+        <button type="button" class="${dark ? "xr-mini-btn" : "btn"}" data-close-wing>Hide</button>
+      </div>
+      ${
+        pendingQueries.length === 0
+          ? `<p style="margin:0;opacity:0.85;">No missing ECG, outside hospital pull, or high-yield bedside question needed for this encounter.</p>`
+          : pendingQueries
+              .map(
+                (q) => `
+              <div class="ask-card" style="${dark ? "background:rgba(15,23,42,0.6);border-color:rgba(148,163,184,0.3);color:#F8FAFC;" : ""}">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                  <strong style="color:${dark ? "#7DD3FC" : "var(--accent)"};">${esc(q.kind === "bedside_question" ? "Bedside Question" : q.kind === "nursing_check" ? "Nursing Door Check" : "Outside Hospital Feed")}</strong>
+                  ${
+                    q.completed
+                      ? `<span class="badge badge-gate-safe">Sent / Pulled ✓</span>`
+                      : `<button type="button" class="btn btn-primary" data-trigger-query="${esc(q.id)}" style="padding:4px 10px;font-size:12px;">${esc(q.button_label)}</button>`
+                  }
+                </div>
+                <div style="font-weight:650;">${esc(q.prompt)}</div>
+                <div style="font-size:12px;opacity:0.82;"><strong>What flips:</strong> ${esc(q.if_positive_impact)}</div>
+              </div>
+            `
+              )
+              .join("")
+      }
+    `;
+  }
+
+  // Zero-Typing Modify Sheet
+  if (state.wingMode === "modify") {
+    const d = ensureModifyDraft(pkt);
+    const pillStyle = dark
+      ? "background:rgba(15,23,42,0.7);color:#F8FAFC;border-color:rgba(148,163,184,0.4);"
+      : "";
+    return `
+      <div class="wing-head">
+        <h3 class="wing-title">Modify Plan (1-Tap, Zero Typing) · ${esc(pkt.packet_id)}</h3>
+        <button type="button" class="${dark ? "xr-mini-btn" : "btn"}" data-close-wing>Cancel</button>
+      </div>
+
+      <div class="pill-picker-group">
+        <strong>1. Triage Acuity</strong>
+        <div class="pill-picker-row">
+          ${["ESI-1", "ESI-2", "ESI-3", "ESI-4", "ESI-5"]
+            .map(
+              (e) =>
+                `<button type="button" class="pick-pill" style="${d.esi === e ? "" : pillStyle}" data-mod-field="esi" data-mod-val="${e}" aria-pressed="${d.esi === e}">${e}</button>`
+            )
+            .join("")}
+        </div>
+      </div>
+
+      <div class="pill-picker-group">
+        <strong>2. Treatment Space</strong>
+        <div class="pill-picker-row">
+          ${SPACE_CHOICES.map(
+            ([val, lbl]) =>
+              `<button type="button" class="pick-pill" style="${d.space === val ? "" : pillStyle}" data-mod-field="space" data-mod-val="${val}" aria-pressed="${d.space === val}">${lbl}</button>`
+          ).join("")}
+        </div>
+      </div>
+
+      <div class="pill-picker-group">
+        <strong>3. Arrival Door Eval</strong>
+        <div class="pill-picker-row">
+          ${[
+            ["none", "No Upgrade"],
+            ["trauma", "Trauma Eval"],
+            ["neuro", "Stroke / Neuro"],
+            ["d2b", "D2B STEMI"],
+          ]
+            .map(
+              ([val, lbl]) =>
+                `<button type="button" class="pick-pill" style="${d.evalNeed === val ? "" : pillStyle}" data-mod-field="evalNeed" data-mod-val="${val}" aria-pressed="${d.evalNeed === val}">${lbl}</button>`
+            )
+            .join("")}
+        </div>
+      </div>
+
+      <div class="pill-picker-group">
+        <strong>4. Waiting-Room Orders &amp; Meds</strong>
+        <div class="pill-picker-row">
+          <button type="button" class="pick-pill" style="${!d.holdOrders ? "" : pillStyle}" data-mod-field="holdOrders" data-mod-val="false" aria-pressed="${!d.holdOrders}">Release Standing Labs</button>
+          <button type="button" class="pick-pill" style="${d.holdOrders ? "" : pillStyle}" data-mod-field="holdOrders" data-mod-val="true" aria-pressed="${d.holdOrders}">Hold WR Labs</button>
+        </div>
+        <div class="pill-picker-row" style="margin-top:4px;">
+          ${[
+            ["recommended", "Recommended Meds"],
+            ["apap_only", "APAP Only"],
+            ["zofran_only", "Ondansetron Only"],
+            ["npo_hold", "Hold Oral Meds (NPO)"],
+          ]
+            .map(
+              ([val, lbl]) =>
+                `<button type="button" class="pick-pill" style="${d.medChoice === val ? "" : pillStyle}" data-mod-field="medChoice" data-mod-val="${val}" aria-pressed="${d.medChoice === val}">${lbl}</button>`
+            )
+            .join("")}
+        </div>
+      </div>
+
+      <div class="pill-picker-group">
+        <strong>5. Clinical Reason (Logged to Hash-Chained Ledger)</strong>
+        <select id="mod-reason-select" style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid var(--border-strong);background:#FFFFFF;color:#18222F;font-size:12.5px;">
+          ${PRESET_OVERRIDE_REASONS.map(
+            (r) => `<option value="${esc(r)}" ${d.reason === r ? "selected" : ""}>${esc(r)}</option>`
+          ).join("")}
+        </select>
+      </div>
+
+      <button type="button" class="btn btn-primary" data-action="commit-modified" style="width:100%;margin-top:4px;">
+        Route Modified Plan ✓
+      </button>
+    `;
+  }
+
+  // Full Chart Details & SPOT DR Wing
+  const visits = (dos.last_ed_visits || []).map((v) => `${v.when}: ${v.summary}`).join(" · ") || "None recorded";
+  const labs = (dos.recent_labs || []).map((l) => `${l.test} ${l.value} (${l.when})`).join(" · ") || "None recorded";
+  const imaging = (dos.recent_di || []).map((d) => `${d.study} (${d.when}): ${d.summary}`).join(" · ") || "None recorded";
+  const spotd = pkt.swarm?.spotd || [];
+
+  return `
+    <div class="wing-head">
+      <h3 class="wing-title">Chart Details · ${esc(pkt.packet_id)}</h3>
+      <button type="button" class="${dark ? "xr-mini-btn" : "btn"}" data-close-wing>Hide</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px;font-size:12.5px;">
+      <div><strong>Nurse Triage Note:</strong> ${esc(enc.nurse_hx_summary)}</div>
+      <div><strong>PMH:</strong> ${esc(dos.pmh_summary)} · <strong>Surgical:</strong> ${esc(dos.surgical_hx_summary)}</div>
+      <div><strong>Active Medications:</strong> ${esc((dos.current_meds || []).join(", "))}</div>
+      <div><strong>Social / Care Context:</strong> ${esc(dos.social_hx_summary)}</div>
+      <div><strong>Prior ED Visits:</strong> ${esc(visits)}</div>
+      <div><strong>Recent Labs / Micro:</strong> ${esc(labs)}</div>
+      <div><strong>Recent Imaging:</strong> ${esc(imaging)}</div>
+    </div>
+    <div style="margin-top:6px;">
+      <strong style="font-size:12.5px;">SPOT DR Differential &amp; Risk Checklist</strong>
+      <div class="spotd-grid">
+        ${spotd
+          .map(
+            (c) => `
+          <div class="spotd-cell ${c.chart && !dark ? "chart-backed" : ""}" style="${dark ? "background:rgba(15,23,42,0.6);border-color:rgba(148,163,184,0.3);color:#F8FAFC;" : ""}">
+            <strong>${esc(c.letter)} · ${esc(c.label)}</strong>
+            <div style="margin-top:2px;">${esc(c.phrase)}</div>
+          </div>
+        `
+          )
+          .join("")}
+      </div>
+    </div>
+  `;
+}
+
+/* --------------------------------------------------------------------------
+ * Mode 1: 2D Provider Crossroads Center Card + Contextual Wing
+ * -------------------------------------------------------------------------- */
+function renderCrossroads2D() {
+  const centerEl = document.getElementById("crossroads-now-root");
+  const wingEl = document.getElementById("crossroads-wing-root");
+  const gridEl = document.getElementById("crossroads-desk");
+  if (!centerEl || !wingEl || !gridEl) return;
+
+  const pkt = activePacket();
+  if (!pkt) {
+    centerEl.innerHTML = `<div class="panel-surface now-card-body"><h2>All arrivals reviewed</h2></div>`;
+    wingEl.hidden = true;
+    gridEl.classList.remove("wing-open");
+    return;
+  }
+
   const enc = pkt.encounter || {};
   const dos = pkt.dossier || {};
   const vit = enc.vitals || {};
   const prior = (enc.prior_vitals || [])[0] || null;
-  const evals = enc.evals || {};
+  const cr = pkt.clinical_routing || {};
   const sg = pkt.safe_gate || {};
-  const sw = pkt.swarm || {};
-  const card = sw.synthesizer || {};
-  const sentinels = pkt.sentinels || [];
-  const recs = pkt.recommendations || [];
+  const routes = cr.what_happens_next || [];
+  const queries = (cr.actionable_queries || []).filter((q) => !q.completed);
+  const medsClean = (dos.current_meds || []).join(", ") || "None recorded";
 
-  const gateState = sg.gate_state || "SENTINEL_ESCALATION";
-  const bannerStateCls =
-    gateState === "CERTIFIED_SAFE_ROUTINE"
-      ? "state-safe"
-      : gateState === "AMBIGUOUS_HOLD_VOI"
-      ? "state-hold"
-      : "state-crit";
-
-  const vPill = (label, val, pVal, isAbn) => {
-    const trend = pVal !== undefined && pVal !== null && pVal !== val ? ` (← ${pVal})` : "";
-    return `<span class="vital-pill ${isAbn ? "abn" : ""}"><strong>${esc(label)}</strong> ${esc(val)}${esc(trend)}</span>`;
+  const vChip = (lbl, val, pVal, abn) => {
+    const tr = pVal !== undefined && pVal !== null && pVal !== val ? ` (← ${pVal})` : "";
+    return `<span class="vital-chip ${abn ? "abn" : ""}"><strong>${esc(lbl)}</strong> ${esc(val)}${esc(tr)}</span>`;
   };
 
-  const missingEvals = ["trauma", "neuro", "d2b"].filter((k) => evals[k] === "missing");
+  const targetStationsStr = routes.map((r) => r.station_label).join(" + ");
+  const approveLabel = cr.hard_trigger?.active
+    ? "Escalate & Route Now ✓"
+    : sg.allow_one_pinch_routine
+    ? "Fast-Pass & Route ✓"
+    : "Approve & Route ✓";
+  const approveCls = cr.hard_trigger?.active
+    ? "btn-crit"
+    : sg.allow_one_pinch_routine
+    ? "btn-safe"
+    : "btn-primary";
 
-  // Distill ONLY the key actionable items so the clinician is never overwhelmed
-  const actionRows = [];
-
-  for (const s of sentinels) {
-    actionRows.push({
-      tone: "urgent",
-      badge: s.badge,
-      title: s.summary,
-      sub: s.clinical_why,
-    });
-  }
-
-  for (const f of card.findings || []) {
-    actionRows.push({
-      tone: "urgent",
-      badge: `Chart Delta ${f.id}`,
-      title: f.finding,
-      sub: `${f.action} (${f.why_now})`,
-    });
-  }
-
-  const activeDecisionRecs = recs.filter(
-    (r) => r.alert || (r.type === "space_priority" && r.value?.priority !== "waiting_room")
-  );
-  const quietDecisionCount = recs.length - activeDecisionRecs.length;
-
-  for (const r of activeDecisionRecs) {
-    actionRows.push({
-      tone: r.alert ? "attention" : "normal",
-      badge: DECISION_TITLES[r.type].replace(/^\d+\.\s*/, ""),
-      title: r.proposal,
-      sub: r.rationale,
-    });
-  }
-
-  if ((card.ask_patient || []).length > 0) {
-    actionRows.push({
-      tone: "normal",
-      badge: "Ask Patient Next",
-      title: card.ask_patient.map((q) => q.question).join(" · "),
-      sub: "Targeted high-VOI bedside verification questions.",
-    });
-  }
-
-  if (actionRows.length === 0) {
-    actionRows.push({
-      tone: "normal",
-      badge: "Routine Pathway",
-      title: "All 5 PITM decisions match routine standing care with zero chart sentinels.",
-      sub: "Conformal missed-escalation check passed — safe for 1-pinch routine acceptance.",
-    });
-  }
-
-  const medsList = (dos.current_meds || []).join(", ") || "None";
-  const recentLabsTxt =
-    (dos.recent_labs || []).map((l) => `${l.test}: ${l.value} (${l.when})`).join(" · ") ||
-    "No recent labs on file";
-  const recentVisitsTxt =
-    (dos.last_ed_visits || []).map((v) => `${v.when}: ${v.summary}`).join(" · ") ||
-    "No recent ED visits";
-
-  return `
-    <!-- Compact Patient Summary + Immediate Gate Bar -->
-    <article class="panel-surface focused-hero-card">
-      <div class="enc-top-row">
-        <div>
-          <h2 class="enc-heading">${esc(pkt.packet_id)} · ${esc(enc.chief_complaint)}</h2>
-          <p class="enc-subline">
-            ${esc(enc.age_years)}y ${esc(enc.sex)} · ${esc(enc.arrival_mode)} (${esc(enc.arrival_minutes_ago)}m ago) · Charted ${esc(enc.triage_status)}
-          </p>
-        </div>
-        <div class="enc-chip-cluster">
-          <span class="${esiBadgeClass(enc.triage_status)}">Charted ${esc(enc.triage_status)}</span>
-          <span class="badge ${pkt.ekg_chip?.status === "pending" ? "badge-gate-hold" : "badge-neutral"}">
-            ${esc(pkt.ekg_chip?.label || "EKG N/A")}
-          </span>
-          ${missingEvals.map((k) => `<span class="badge badge-gate-crit">${esc(k.toUpperCase())} MISSING</span>`).join("")}
-        </div>
-      </div>
-
-      <div class="focused-vitals-inline">
-        ${vPill("HR", `${vit.hr} bpm`, prior?.hr, vit.hr >= 100 || vit.hr <= 50)}
-        ${vPill("BP", `${vit.sbp}/${vit.dbp}`, prior ? `${prior.sbp}/${prior.dbp}` : null, vit.sbp < 95)}
-        ${vPill("RR", `${vit.rr}/m`, prior?.rr, vit.rr >= 22)}
-        ${vPill("SpO2", `${vit.spo2}%`, prior?.spo2, vit.spo2 < 94)}
-        ${vPill("Temp", `${vit.temp_c}°C`, prior?.temp_c, vit.temp_c >= 38.0 || vit.temp_c < 36.0)}
-        ${(vit.gcs ?? 15) < 15 ? vPill("GCS", vit.gcs, prior?.gcs, true) : ""}
-      </div>
-
-      <div class="safe-gate-banner ${bannerStateCls}" style="margin-top:14px;">
-        <div class="gate-copy">
-          <h3 class="gate-title">
-            ${iconSvg(gateState === "CERTIFIED_SAFE_ROUTINE" ? "check" : gateState === "AMBIGUOUS_HOLD_VOI" ? "hold" : "alert")}
-            <span>${esc(sg.gate_label)}</span>
-          </h3>
-          <p class="gate-desc">${esc(sg.gate_reason)}</p>
-        </div>
-        <div class="gate-actions">
-          ${buildGateActionButtons(pkt)}
-        </div>
-      </div>
-    </article>
-
-    <!-- Key Actionable Items Only -->
-    <section class="panel-surface focused-checklist-card" aria-label="Key actionable clinical items">
-      <h3 class="section-heading">
-        <span>Key Actionable Items (${actionRows.length})</span>
-        ${quietDecisionCount > 0 ? `<span class="badge badge-neutral">${quietDecisionCount} routine PITM item(s) unchanged</span>` : ""}
-      </h3>
-      ${card.framing_check ? `<div class="framing-alert">${esc(card.framing_check)}</div>` : ""}
-      <ul class="action-item-list">
-        ${actionRows
-          .map(
-            (item) => `
-          <li class="action-item-row ${item.tone === "urgent" ? "urgent" : item.tone === "attention" ? "attention" : ""}">
-            <div class="action-item-main">
-              <p class="action-item-title">${esc(item.title)}</p>
-              <p class="action-item-sub">${esc(item.sub)}</p>
-            </div>
-            <span class="badge ${item.tone === "urgent" ? "badge-gate-crit" : item.tone === "attention" ? "badge-gate-hold" : "badge-neutral"}">
-              ${esc(item.badge)}
+  centerEl.innerHTML = `
+    <article class="panel-surface now-card">
+      ${
+        cr.hard_trigger?.active
+          ? `<div class="hard-trigger-banner">
+              <span>${esc(cr.hard_trigger.banner)}</span>
+              <span class="badge" style="background:rgba(255,255,255,0.2);color:#FFFFFF;">Bypass External Wait</span>
+            </div>`
+          : ""
+      }
+      <div class="now-card-body">
+        <div class="route-header-row">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span class="now-pill">NOW</span>
+            <span style="font-size:13px;font-weight:650;color:var(--ink-secondary);">
+              Triage Gate → ${esc(targetStationsStr)} · ${esc(pkt.packet_id)}
             </span>
-          </li>
-        `
-          )
-          .join("")}
-      </ul>
-    </section>
-
-    <!-- On-Demand Expandable Detail Sections (Collapsed by default to prevent visual overload) -->
-    <div class="expand-stack">
-      <details class="expand-drawer">
-        <summary>
-          <span>Customize or Override Individual PITM Decisions (All 5)</span>
-          <span class="badge badge-neutral">Expand to Change / Decline</span>
-        </summary>
-        <div class="drawer-content">
-          <div class="decision-rows">
-            ${buildDecisionRowsHtml(pkt)}
           </div>
-          <div class="commit-bar">
-            <span style="font-size:12.5px;color:var(--ink-secondary);">
-              Overrides require at least 8 characters and log to the SHA-256 hash-chained ledger.
-            </span>
-            <button type="button" class="btn btn-primary" data-action="commit-five">
-              Commit Customized 5 Decisions
+          <div style="display:flex;gap:6px;align-items:center;">
+            <span class="${esiBadgeClass(enc.triage_status)}">Charted ${esc(enc.triage_status)}</span>
+            <span class="badge ${pkt.ekg_chip?.status === "pending" ? "badge-gate-hold" : "badge-neutral"}">${esc(pkt.ekg_chip?.label || "EKG N/A")}</span>
+            ${clinicalGateBadge(pkt)}
+          </div>
+        </div>
+
+        <h2 class="patient-headline">
+          ${esc(enc.age_years)}y ${esc(enc.sex)} · ${esc(enc.chief_complaint)}
+          <span style="font-size:14px;font-weight:500;color:var(--ink-muted);">(${esc(enc.arrival_mode)} · waiting ${esc(enc.arrival_minutes_ago)}m)</span>
+        </h2>
+
+        <div class="vitals-inline-row">
+          ${vChip("HR", `${vit.hr} bpm`, prior?.hr, vit.hr >= 100 || vit.hr <= 50)}
+          ${vChip("BP", `${vit.sbp}/${vit.dbp}`, prior ? `${prior.sbp}/${prior.dbp}` : null, vit.sbp < 95)}
+          ${vChip("RR", `${vit.rr}/m`, prior?.rr, vit.rr >= 22)}
+          ${vChip("SpO2", `${vit.spo2}%`, prior?.spo2, vit.spo2 < 94)}
+          ${vChip("T", `${vit.temp_c}°C`, prior?.temp_c, vit.temp_c >= 38.0 || vit.temp_c < 36.0)}
+          ${(vit.gcs ?? 15) < 15 ? vChip("GCS", vit.gcs, prior?.gcs, true) : ""}
+        </div>
+
+        <p class="pmh-meds-line">
+          <strong>PMH:</strong> ${esc(dos.pmh_summary)} · <strong>Active Meds:</strong> ${esc(medsClean)}
+        </p>
+
+        <div class="why-queued-row">
+          <span style="font-size:12px;font-weight:750;color:var(--ink-muted);">WHY QUEUED:</span>
+          ${(cr.why_queued || [])
+            .map(
+              (ch) =>
+                `<span class="why-chip ${cr.hard_trigger?.active || (pkt.sentinels || []).length > 0 ? "crit" : ""}">${esc(ch)}</span>`
+            )
+            .join("")}
+        </div>
+
+        ${
+          cr.if_missed_risk
+            ? `<p class="if-missed-line"><strong>IF MISSED:</strong> ${esc(cr.if_missed_risk)}</p>`
+            : ""
+        }
+
+        <div class="decision-call-box">
+          <p class="decision-call-title">Decision: ${esc(cr.headline_decision)}</p>
+          <div style="font-size:12px;font-weight:750;color:var(--ink-muted);margin-bottom:4px;">WHAT HAPPENS NEXT WHEN YOU APPROVE:</div>
+          <ul class="what-next-list">
+            ${routes
+              .map(
+                (r) => `
+              <li class="what-next-item ${r.urgent ? "urgent" : ""}">
+                <span>→ <strong>${esc(r.station_label)}:</strong> ${esc(r.summary)}</span>
+              </li>
+            `
+              )
+              .join("")}
+          </ul>
+        </div>
+
+        <div class="crossroads-action-bar">
+          <div class="primary-btn-cluster">
+            <button type="button" class="btn ${approveCls}" data-action="approve-route">
+              ${esc(approveLabel)}
+            </button>
+            <button type="button" class="btn" data-toggle-wing="modify">
+              Modify…
+            </button>
+          </div>
+          <div class="secondary-btn-cluster">
+            ${
+              queries.length > 0
+                ? `<button type="button" class="btn btn-hold" data-toggle-wing="ask">
+                    Ask Next / Missing Check (${queries.length})
+                  </button>`
+                : ""
+            }
+            <button type="button" class="btn" data-toggle-wing="details">
+              ${state.wingMode === "details" ? "Hide Details" : "Chart Details"}
             </button>
           </div>
         </div>
-      </details>
-
-      <details class="expand-drawer">
-        <summary>
-          <span>Nurse Note, Chart Dossier &amp; SPOT DR Cognitive Strip</span>
-          <span class="badge badge-neutral">${esc(sw.orthogonality?.distinct_mechanisms_covered ?? 0)} Mechanism Axis/Axes</span>
-        </summary>
-        <div class="drawer-content">
-          <div class="nurse-note-box" style="margin-top:0;margin-bottom:10px;">
-            <strong>Nurse Triage Note:</strong> ${esc(enc.nurse_hx_summary)}
-          </div>
-          <div class="delta-split" style="margin-top:0;margin-bottom:12px;">
-            <div class="delta-subbox">
-              <h4 class="subbox-title">PMH &amp; Active Medications</h4>
-              <p style="margin:0;font-size:12.5px;color:var(--ink-secondary);">
-                <strong>PMH:</strong> ${esc(dos.pmh_summary)}<br/>
-                <strong>Meds:</strong> ${esc(medsList)}
-              </p>
-            </div>
-            <div class="delta-subbox">
-              <h4 class="subbox-title">Recent Visits &amp; Labs</h4>
-              <p style="margin:0;font-size:12.5px;color:var(--ink-secondary);">
-                <strong>Visits:</strong> ${esc(recentVisitsTxt)}<br/>
-                <strong>Labs:</strong> ${esc(recentLabsTxt)}
-              </p>
-            </div>
-          </div>
-          ${buildSpotdHtml(sw)}
-        </div>
-      </details>
-
-      <details class="expand-drawer">
-        <summary class="tabular">
-          <span>Statistical Safety &amp; Decision-Flip VOI Receipt</span>
-          <span class="badge badge-neutral">Door p₁ ${pct(sg.p1_calibrated)} → Full Chart p₂ ${pct(sg.p2_calibrated)} · τsafe ${pct(sg.tau_safe_routine)}</span>
-        </summary>
-        <div class="drawer-content">
-          ${buildSafetyMetricsInnerHtml(pkt)}
-        </div>
-      </details>
-    </div>
+      </div>
+    </article>
   `;
+
+  if (state.wingMode) {
+    wingEl.hidden = false;
+    gridEl.classList.add("wing-open");
+    wingEl.innerHTML = buildWingContentHtml(pkt, false);
+  } else {
+    wingEl.hidden = true;
+    gridEl.classList.remove("wing-open");
+  }
 }
 
 /* --------------------------------------------------------------------------
- * Mode 2: Full Workbench View (3-Column Power-User Desk)
+ * Mode 2: 3D Spatial XR Crossroads (SDR-Inspired Arena + Three.js Stage)
  * -------------------------------------------------------------------------- */
-function renderWorkbenchNowGate(pkt) {
-  const enc = pkt.encounter || {};
-  const vit = enc.vitals || {};
-  const prior = (enc.prior_vitals || [])[0] || null;
-  const evals = enc.evals || {};
-  const sg = pkt.safe_gate || {};
-  const sw = pkt.swarm || {};
-  const card = sw.synthesizer || {};
-  const orth = sw.orthogonality || {};
-  const sentinels = pkt.sentinels || [];
+function renderSpatialOverlays() {
+  const topBoard = document.getElementById("xr-top-board");
+  const centerCard = document.getElementById("xr-center-card");
+  const leftWing = document.getElementById("xr-left-wing");
+  const rightWing = document.getElementById("xr-right-wing");
+  if (!topBoard || !centerCard || !leftWing || !rightWing) return;
 
-  const gateState = sg.gate_state || "SENTINEL_ESCALATION";
-  const bannerStateCls =
-    gateState === "CERTIFIED_SAFE_ROUTINE"
-      ? "state-safe"
-      : gateState === "AMBIGUOUS_HOLD_VOI"
-      ? "state-hold"
-      : "state-crit";
-
-  const vitalCell = (val, priorVal, abnCond, unit = "") => {
-    const deltaStr =
-      priorVal !== undefined && priorVal !== null && priorVal !== val ? ` (door ${priorVal})` : "";
-    return `<td class="${abnCond ? "vital-abn" : ""}">${esc(val ?? "—")}${esc(unit)}${esc(deltaStr)}</td>`;
-  };
-
-  const evalBadges = ["trauma", "neuro", "d2b"]
-    .map((k) => {
-      const st = evals[k] || "not_indicated";
-      const cls =
-        st === "missing" ? "badge-gate-crit" : st === "done" ? "badge-gate-safe" : "badge-neutral";
-      return `<span class="badge ${cls}">${esc(k.toUpperCase())}: ${esc(st.replace("_", " "))}</span>`;
-    })
+  const c = state.capacity;
+  const s = state.stats;
+  const recentFeed = state.routedHistory
+    .slice(-4)
+    .reverse()
+    .map(
+      (h) => `
+      <div class="xr-feed-line">
+        <span><strong>${esc(h.packetId)}</strong> · ${esc(h.ageSex)} ${esc(h.chief)}</span>
+        <span style="color:${h.modified ? "#FDBA74" : "#86EFAC"};font-weight:700;">→ ${esc(h.headline)}</span>
+      </div>
+    `
+    )
     .join("");
 
-  const sentinelHtml =
-    sentinels.length > 0
-      ? `
-      <section class="sentinel-section" aria-label="Non-waivable clinical sentinels">
-        <h3 class="section-heading">
-          <span>Must-Know Clinical Sentinels (${sentinels.length})</span>
-          <span class="badge badge-gate-crit">Deterministic Layer-0 Guardrail</span>
-        </h3>
-        <ul class="sentinel-list">
-          ${sentinels
-            .map(
-              (s) => `
-            <li class="sentinel-row">
-              <div class="sentinel-row-head">
-                <span class="badge badge-gate-crit">${esc(s.badge)}</span>
-                <span class="src-pill">${esc(s.source)}</span>
-              </div>
-              <strong>${esc(s.summary)}</strong>
-              <span class="sentinel-why">${esc(s.clinical_why)}</span>
-            </li>
-          `
-            )
-            .join("")}
-        </ul>
-      </section>
-    `
-      : "";
-
-  const findingsHtml =
-    (card.findings || []).length > 0
-      ? `<div class="findings-list">
-          ${card.findings
-            .map(
-              (f) => `
-            <div class="finding-row">
-              <div class="finding-top">
-                <span class="finding-title">${esc(f.id)} · ${esc(f.finding)}</span>
-                <div>
-                  <span class="badge badge-neutral">${esc(f.status)}</span>
-                  <span class="badge ${f.evidence === "CONFLICTING" ? "badge-gate-crit" : "badge-neutral"}">${esc(f.evidence)}</span>
-                </div>
-              </div>
-              <p class="finding-why">${esc(f.why_now)}</p>
-              <p class="finding-action">Recommended focus: ${esc(f.action)}</p>
-              <div class="src-pills">
-                ${(f.sources || []).map((src) => `<span class="src-pill">${esc(src)}</span>`).join("")}
-              </div>
-            </div>
-          `
-            )
-            .join("")}
-        </div>`
-      : "";
-
-  const safetyAndAskHtml =
-    (card.safety_net || []).length > 0 || (card.ask_patient || []).length > 0
-      ? `<div class="delta-split">
-          <div class="delta-subbox">
-            <h4 class="subbox-title">Immediate Safety-Net Checks</h4>
-            ${
-              (card.safety_net || []).length > 0
-                ? `<ul class="compact-ul">
-                    ${card.safety_net
-                      .map((sn) => `<li><strong>${esc(sn.action)}</strong> — ${esc(sn.checks)}</li>`)
-                      .join("")}
-                  </ul>`
-                : `<p style="margin:0;font-size:12.5px;color:var(--ink-muted);">Standing nursing pathway covers immediate checks.</p>`
-            }
-          </div>
-          <div class="delta-subbox">
-            <h4 class="subbox-title">VOI-Targeted Bedside Questions</h4>
-            ${
-              (card.ask_patient || []).length > 0
-                ? `<ul class="compact-ul">
-                    ${card.ask_patient
-                      .map((aq) => `<li><strong>[${esc(aq.for_finding)}]</strong> ${esc(aq.question)}</li>`)
-                      .join("")}
-                  </ul>`
-                : `<p style="margin:0;font-size:12.5px;color:var(--ink-muted);">No high-VOI bedside clarification needed right now.</p>`
-            }
-          </div>
-        </div>`
-      : "";
-
-  return `
-    <article class="panel-surface encounter-header-card">
-      <div class="enc-top-row">
-        <div>
-          <h2 class="enc-heading">${esc(pkt.packet_id)} · ${esc(enc.chief_complaint)}</h2>
-          <p class="enc-subline">
-            ${esc(enc.age_years)}y ${esc(enc.sex)} · Arrival via ${esc(enc.arrival_mode)} (${esc(enc.arrival_minutes_ago)}m ago) · Charted ${esc(enc.triage_status)}
-          </p>
-        </div>
-        <div class="enc-chip-cluster">
-          <span class="${esiBadgeClass(enc.triage_status)}">Charted ${esc(enc.triage_status)}</span>
-          <span class="badge ${pkt.ekg_chip?.status === "pending" ? "badge-gate-hold" : "badge-neutral"}">
-            ${esc(pkt.ekg_chip?.label || "EKG N/A")}
-          </span>
-          ${evalBadges}
-        </div>
+  topBoard.innerHTML = `
+    <div class="xr-board-metrics">
+      <div>
+        <strong style="font-size:13.5px;color:#FFFFFF;">ED Triage Spatial Crossroads</strong>
+        <span style="color:#FDE047;margin-left:6px;">SYNTHETIC — zero PHI</span>
       </div>
-
-      <div class="nurse-note-box">
-        <strong>Nurse Triage Summary:</strong> ${esc(enc.nurse_hx_summary)}
+      <div style="display:flex;gap:14px;">
+        <div class="xr-stat"><strong>${s.reviewed}</strong><span>Routed</span></div>
+        <div class="xr-stat"><strong>${s.hardTriggers}</strong><span>Hard Triggers</span></div>
+        <div class="xr-stat"><strong>${s.fastPassed}</strong><span>Fast-Passed</span></div>
+        <div class="xr-stat"><strong>${s.overrides}</strong><span>Modified</span></div>
+        <div class="xr-stat"><strong>${s.asksSent}</strong><span>Checks Sent</span></div>
+        <div class="xr-stat"><strong>${c.bedsOpen}/${c.bedsTotal}</strong><span>Beds Open</span></div>
       </div>
-
-      <div class="vitals-table-wrap">
-        <table class="vitals-strip">
-          <thead>
-            <tr><th>HR</th><th>BP</th><th>RR</th><th>SpO2</th><th>Temp</th><th>GCS</th></tr>
-          </thead>
-          <tbody>
-            <tr>
-              ${vitalCell(vit.hr, prior?.hr, vit.hr >= 100 || vit.hr <= 50, " bpm")}
-              ${vitalCell(`${vit.sbp}/${vit.dbp}`, prior ? `${prior.sbp}/${prior.dbp}` : null, vit.sbp < 95, " mmHg")}
-              ${vitalCell(vit.rr, prior?.rr, vit.rr >= 22, "/min")}
-              ${vitalCell(vit.spo2, prior?.spo2, vit.spo2 < 94, "%")}
-              ${vitalCell(vit.temp_c, prior?.temp_c, vit.temp_c >= 38.0 || vit.temp_c < 36.0, " °C")}
-              ${vitalCell(vit.gcs ?? 15, prior?.gcs, (vit.gcs ?? 15) < 15, "")}
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </article>
-
-    <section class="safe-gate-banner ${bannerStateCls}" aria-label="Dual Conformal Safe-Gate status">
-      <div class="gate-copy">
-        <h3 class="gate-title">
-          ${iconSvg(gateState === "CERTIFIED_SAFE_ROUTINE" ? "check" : gateState === "AMBIGUOUS_HOLD_VOI" ? "hold" : "alert")}
-          <span>${esc(sg.gate_label)}</span>
-        </h3>
-        <p class="gate-desc">${esc(sg.gate_reason)}</p>
-      </div>
-      <div class="gate-actions">
-        ${buildGateActionButtons(pkt)}
-      </div>
-    </section>
-
-    ${sentinelHtml}
-
-    <section class="panel-surface delta-card" aria-label="Orthogonal clinical delta synthesis">
-      <h3 class="section-heading">
-        <span>Orthogonal Clinical Delta (Chart vs. Door Triage)</span>
-        <span class="badge ${card.priority === "CRITICAL" ? "badge-gate-crit" : card.priority === "HIGH" ? "badge-gate-hold" : "badge-gate-safe"}">
-          ${esc(card.priority)} · ${esc(orth.distinct_mechanisms_covered ?? 0)} Mechanism Axis/Axes
-        </span>
-      </h3>
-      ${card.framing_check ? `<div class="framing-alert">${esc(card.framing_check)}</div>` : ""}
-      <p class="delta-headline">${esc(card.headline)}</p>
-      ${findingsHtml}
-      ${safetyAndAskHtml}
-      ${buildSpotdHtml(sw)}
-      <p style="margin:12px 0 0;font-size:12.5px;color:var(--ink-secondary);">
-        <strong>Flow Note:</strong> ${esc(card.queue_note)}
-      </p>
-      <details class="orth-disclosure">
-        <summary class="tabular">
-          Sequential Conditional Gain (G_{m|S}) Audit: ${esc(orth.n_orthogonal_selected ?? 0)} selected · ${esc(orth.n_echoes_suppressed ?? 0)} triage echoes suppressed · ${esc(orth.n_twins_suppressed ?? 0)} collinear twins pruned
-        </summary>
-        <ul class="compact-ul" style="margin-top:8px;">
-          ${(card.suppressed || [])
-            .map(
-              (sup) =>
-                `<li><strong>${esc(sup.item)}</strong> — ${esc(SUPPRESSED_REASON_LABELS[sup.reason] || sup.reason)}</li>`
-            )
-            .join("")}
-        </ul>
-      </details>
-    </section>
-
-    <section class="panel-surface decisions-card" aria-label="Five Provider-in-the-Middle decisions">
-      <h3 class="section-heading">
-        <span>Provider-in-the-Middle 5 Bounded Decisions</span>
-        <span class="badge badge-neutral">EKG Never Ordered Here · Override Requires Rationale</span>
-      </h3>
-      <div class="decision-rows">
-        ${buildDecisionRowsHtml(pkt)}
-      </div>
-      <div class="commit-bar">
-        <span style="font-size:12.5px;color:var(--ink-secondary);">
-          Commits all 5 decisions to the SHA-256 hash-chained ledger for Neyman two-phase shadow auditing.
-        </span>
-        <button type="button" class="btn btn-primary" data-action="commit-five">
-          Commit 5 Decisions to Ledger
-        </button>
-      </div>
-    </section>
+    </div>
+    <div class="xr-routed-feed">
+      ${recentFeed || `<div style="color:#94A3B8;">Tap Approve &amp; Route (or press Space) to launch live 3D handoffs to downstream ED stations.</div>`}
+    </div>
   `;
-}
 
-function renderNowGate() {
-  const root = document.getElementById("now-gate-root");
-  if (!root) return;
-  const pkt = activePacket();
-  if (!pkt) {
-    root.innerHTML = `<div class="panel-surface encounter-header-card"><h2 class="section-heading">No packet selected</h2></div>`;
-    return;
-  }
-  root.innerHTML =
-    state.viewMode === "focused" ? renderFocusedNowGate(pkt) : renderWorkbenchNowGate(pkt);
-}
-
-function renderSafetyRail() {
-  const rail = document.getElementById("safety-rail-root");
-  if (!rail) return;
-  const pkt = activePacket();
-  if (!pkt) {
-    rail.innerHTML = "";
-    return;
-  }
-  rail.innerHTML = buildSafetyMetricsInnerHtml(pkt);
-}
-
-function renderSpatialHud() {
-  const hud = document.getElementById("spatial-patient-hud");
-  if (!hud) return;
   const pkt = activePacket();
   if (!pkt) return;
   const enc = pkt.encounter || {};
+  const dos = pkt.dossier || {};
+  const vit = enc.vitals || {};
+  const cr = pkt.clinical_routing || {};
   const sg = pkt.safe_gate || {};
-  const proposedEsi = pkt.recommendations?.[0]?.value?.triage_status || enc.triage_status;
-  const topFinding =
-    pkt.swarm?.synthesizer?.findings?.[0]?.finding ||
-    pkt.sentinels?.[0]?.summary ||
-    pkt.recommendations?.find((r) => r.alert)?.proposal ||
-    "Routine standing pathway — zero chart sentinels.";
+  const routes = cr.what_happens_next || [];
+  const queries = (cr.actionable_queries || []).filter((q) => !q.completed);
 
-  hud.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
-      <div>
-        <h2 style="margin:0;font-size:16px;font-weight:700;">${esc(pkt.packet_id)} · ${esc(enc.chief_complaint)}</h2>
-        <p class="tabular" style="margin:3px 0 0;font-size:12px;color:var(--ink-secondary);">
-          ${esc(enc.age_years)}y ${esc(enc.sex)} · Charted ${esc(enc.triage_status)} → Proposed ${esc(proposedEsi)} · Full Chart Risk ${pct(sg.p2_calibrated)}
-        </p>
+  const approveLabel = cr.hard_trigger?.active
+    ? "Escalate & Route ✓"
+    : sg.allow_one_pinch_routine
+    ? "Fast-Pass ✓"
+    : "Approve & Route ✓";
+  const approveCls = cr.hard_trigger?.active
+    ? "btn-crit"
+    : sg.allow_one_pinch_routine
+    ? "btn-safe"
+    : "btn-primary";
+
+  centerCard.innerHTML = `
+    ${
+      cr.hard_trigger?.active
+        ? `<div class="hard-trigger-banner" style="padding:9px 15px;font-size:13.5px;">
+            <span>${esc(cr.hard_trigger.banner)}</span>
+            <span style="font-size:12px;opacity:0.9;">Immediate Action</span>
+          </div>`
+        : ""
+    }
+    <div class="xr-card-inner">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+        <div>
+          <span class="now-pill">NOW</span>
+          <span style="font-size:12.5px;color:#CBD5E1;margin-left:6px;">
+            Triage Gate → ${esc(routes.map((r) => r.station_label).join(" + "))} · ${esc(pkt.packet_id)}
+          </span>
+        </div>
+        ${clinicalGateBadge(pkt, true)}
       </div>
-      ${gateBadgeHtml(sg.gate_state)}
+
+      <div style="font-size:15px;font-weight:750;">
+        [SYNTHETIC] ${esc(enc.age_years)}${esc(enc.sex)} · ${esc(enc.chief_complaint)} · HR ${esc(vit.hr)} BP ${esc(vit.sbp)}/${esc(vit.dbp)} SpO2 ${esc(vit.spo2)}% T ${esc(vit.temp_c)}
+        ${(vit.gcs ?? 15) < 15 ? `· <span style="color:#FCA5A5;">GCS ${esc(vit.gcs)}</span>` : ""}
+      </div>
+
+      <p class="xr-pmh-line">
+        PMH: ${esc(dos.pmh_summary)} · Meds: ${esc((dos.current_meds || []).join(", "))}
+      </p>
+
+      <p class="xr-census-line">
+        ED Census: Staffed beds ${c.bedsOpen}/${c.bedsTotal} · Hallway ${c.hallwayOpen}/${c.hallwayTotal} · Fast track ${c.fastTrackOpen}/${c.fastTrackTotal} · Waitboard ${c.waitboard}
+      </p>
+
+      <div style="display:flex;flex-wrap:wrap;gap:5px;align-items:center;">
+        <span style="font-size:12px;color:#94A3B8;font-weight:700;">WHY QUEUED:</span>
+        ${(cr.why_queued || [])
+          .map(
+            (w) =>
+              `<span class="xr-why-chip ${cr.hard_trigger?.active || (pkt.sentinels || []).length > 0 ? "crit" : ""}">${esc(w)}</span>`
+          )
+          .join("")}
+      </div>
+
+      ${cr.if_missed_risk ? `<p class="xr-if-wrong">IF MISSED · ${esc(cr.if_missed_risk)}</p>` : ""}
+
+      <p class="xr-plan-call">Plan? ${esc(cr.headline_decision)}</p>
+
+      <div>
+        ${routes
+          .map(
+            (r) =>
+              `<p class="xr-next-green" style="${r.urgent ? "color:#FDBA74;" : ""}">Pass → ${esc(r.station_label)}: ${esc(r.summary)}</p>`
+          )
+          .join("")}
+      </div>
+
+      <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;margin-top:4px;">
+        <div style="display:flex;gap:7px;flex-wrap:wrap;">
+          <button type="button" class="btn ${approveCls}" data-action="approve-route">${esc(approveLabel)}</button>
+          <button type="button" class="btn" data-toggle-wing="modify">Modify…</button>
+          ${
+            queries.length > 0
+              ? `<button type="button" class="btn btn-hold" data-toggle-wing="ask">Ask Next (${queries.length})</button>`
+              : ""
+          }
+        </div>
+        <button type="button" class="xr-mini-btn" data-toggle-wing="details">
+          ${state.wingMode === "details" ? "Hide Details" : "Details"}
+        </button>
+      </div>
     </div>
-    <p style="margin:10px 0;padding:8px 10px;border-radius:6px;background:var(--bg-subtle);border:1px solid var(--border);font-size:12.5px;">
-      <strong>Lead Focus:</strong> ${esc(topFinding)}
-    </p>
-    <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:center;">
-      ${buildGateActionButtons(pkt)}
-      <button type="button" class="btn" data-switch-tab="focused">Open Focused Detail</button>
+  `;
+
+  if (state.wingMode) {
+    leftWing.hidden = false;
+    leftWing.innerHTML = buildWingContentHtml(pkt, true);
+  } else {
+    leftWing.hidden = true;
+  }
+
+  const upcoming = sortedPackets()
+    .filter((p) => !state.reviewedPacketIds.has(p.packet_id) && p.packet_id !== pkt.packet_id)
+    .slice(0, 4);
+  const fastCount = state.packets.filter(
+    (p) => !state.reviewedPacketIds.has(p.packet_id) && p.safe_gate?.gate_state === "CERTIFIED_SAFE_ROUTINE"
+  ).length;
+
+  rightWing.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:baseline;">
+      <strong style="font-size:14px;">Up Next</strong>
+      <span class="tabular" style="font-size:12px;color:#CBD5E1;">${upcoming.length + 1} pending · ${fastCount} fast-pass</span>
     </div>
+    ${upcoming
+      .map((u) => {
+        const uWhy = (u.clinical_routing?.why_queued || [])[0] || "";
+        const propEsi = u.recommendations?.[0]?.value?.triage_status || u.encounter?.triage_status;
+        return `
+          <button type="button" class="xr-upnext-item" data-select-packet="${esc(u.packet_id)}">
+            <div style="display:flex;justify-content:space-between;font-size:12.5px;">
+              <strong>${esc(u.packet_id)} · ${esc(propEsi)}</strong>
+              <span style="color:#94A3B8;">${esc(u.encounter?.arrival_minutes_ago)}m</span>
+            </div>
+            <div style="font-size:12px;color:#E2E8F0;margin:2px 0;">${esc(u.encounter?.chief_complaint)}</div>
+            <span class="xr-why-chip ${u.clinical_routing?.hard_trigger?.active ? "crit" : ""}" style="display:inline-block;margin-top:2px;">
+              ${esc(uWhy)}
+            </span>
+          </button>
+        `;
+      })
+      .join("")}
   `;
 }
 
-/* --------------------------------------------------------------------------
- * Mode 3: Interactive 3D Spatial Stage (Three.js r184 WebGL + OrbitControls + Raycaster)
- * -------------------------------------------------------------------------- */
-function createLabelSprite(THREE, text, bgColor = "#18222F", fgColor = "#FFFFFF") {
+function makePillSprite(THREE, title, sub, bg = "rgba(30,41,59,0.92)", border = "#64748B") {
   const canvas = document.createElement("canvas");
-  canvas.width = 256;
-  canvas.height = 64;
+  canvas.width = 320;
+  canvas.height = 96;
   const ctx = canvas.getContext("2d");
-  ctx.fillStyle = bgColor;
+  ctx.fillStyle = bg;
   ctx.beginPath();
-  ctx.roundRect(6, 8, 244, 48, 12);
+  ctx.roundRect(8, 10, 304, 76, 36);
   ctx.fill();
-  ctx.strokeStyle = "rgba(255,255,255,0.45)";
-  ctx.lineWidth = 2;
+  ctx.strokeStyle = border;
+  ctx.lineWidth = 3;
   ctx.stroke();
-  ctx.fillStyle = fgColor;
-  ctx.font = "bold 22px -apple-system, BlinkMacSystemFont, Inter, sans-serif";
+
+  ctx.fillStyle = "#F8FAFC";
+  ctx.font = "bold 23px -apple-system, BlinkMacSystemFont, Inter, sans-serif";
   ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(text, 128, 33);
+  ctx.fillText(title, 160, 42);
+
+  ctx.fillStyle = "#CBD5E1";
+  ctx.font = "600 18px -apple-system, BlinkMacSystemFont, Inter, sans-serif";
+  ctx.fillText(sub, 160, 68);
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.needsUpdate = true;
   const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
   const sprite = new THREE.Sprite(mat);
-  sprite.scale.set(0.75, 0.19, 1);
+  sprite.scale.set(1.38, 0.42, 1);
   return { sprite, tex, mat };
 }
 
-class SpatialTriageStage {
+class SpatialCrossroadsArena {
   constructor(THREE, OrbitControls, host) {
     this.THREE = THREE;
     this.host = host;
     this.disposables = [];
     this.interactiveMeshes = [];
+    this.flyingPulses = []; // [{ mesh, start, end, t }]
+    this.stationPositions = {};
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x0f1722);
+    this.scene.background = new THREE.Color(0x0b1220);
 
     const w = Math.max(320, host.clientWidth || window.innerWidth);
-    const h = Math.max(320, host.clientHeight || window.innerHeight - 64);
+    const h = Math.max(320, host.clientHeight || window.innerHeight - 58);
 
-    this.camera = new THREE.PerspectiveCamera(46, w / h, 0.1, 60);
-    this.camera.position.set(0, 4.1, 6.2);
+    this.camera = new THREE.PerspectiveCamera(48, w / h, 0.1, 80);
+    this.camera.position.set(0, 2.35, 6.8);
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -933,123 +882,114 @@ class SpatialTriageStage {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.08;
-    this.controls.target.set(0, 0.55, 0);
-    this.controls.minDistance = 2.4;
-    this.controls.maxDistance = 12.5;
-    this.controls.maxPolarAngle = Math.PI * 0.48;
+    this.controls.target.set(0, 1.15, -1.2);
+    this.controls.minDistance = 3.5;
+    this.controls.maxDistance = 12.0;
+    this.controls.maxPolarAngle = Math.PI * 0.52;
 
-    // Crisp architectural studio lighting
-    const hemi = new THREE.HemisphereLight(0xf2f7ff, 0x1e293b, 1.35);
-    this.scene.add(hemi);
-    const dir = new THREE.DirectionalLight(0xffffff, 1.25);
-    dir.position.set(4.5, 8.0, 5.0);
-    this.scene.add(dir);
+    // Studio spatial lighting for glossy 3D spheres (matches SDR aesthetic)
+    this.scene.add(new THREE.HemisphereLight(0xe2e8f0, 0x0f172a, 1.25));
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.45);
+    keyLight.position.set(4, 9, 6);
+    this.scene.add(keyLight);
+    const rimLight = new THREE.PointLight(0x38bdf8, 0.9, 18);
+    rimLight.position.set(0, 3.5, -4.5);
+    this.scene.add(rimLight);
 
-    // Architectural floor grid + Bayes / Conformal threshold rings
-    const grid = new THREE.GridHelper(10, 20, 0x334155, 0x1e293b);
-    grid.position.y = 0.0;
+    // Perspective floor grid + cyan horizon boundary ring
+    const grid = new THREE.GridHelper(22, 28, 0x334155, 0x17253b);
+    grid.position.y = -0.5;
     this.scene.add(grid);
 
-    const outerRingGeo = new THREE.RingGeometry(3.15, 3.23, 96);
-    const outerRingMat = new THREE.MeshBasicMaterial({
-      color: 0x38bdf8,
-      side: THREE.DoubleSide,
-      transparent: true,
-      opacity: 0.45,
-    });
-    const outerRing = new THREE.Mesh(outerRingGeo, outerRingMat);
-    outerRing.rotation.x = -Math.PI / 2;
-    outerRing.position.y = 0.01;
-    this.scene.add(outerRing);
-
-    const innerRingGeo = new THREE.RingGeometry(1.45, 1.51, 72);
-    const innerRingMat = new THREE.MeshBasicMaterial({
-      color: 0x22c55e,
-      side: THREE.DoubleSide,
-      transparent: true,
-      opacity: 0.35,
-    });
-    const innerRing = new THREE.Mesh(innerRingGeo, innerRingMat);
-    innerRing.rotation.x = -Math.PI / 2;
-    innerRing.position.y = 0.012;
-    this.scene.add(innerRing);
+    const horizonArc = new THREE.Mesh(
+      new THREE.RingGeometry(6.8, 6.86, 96),
+      new THREE.MeshBasicMaterial({ color: 0x38bdf8, side: THREE.DoubleSide, transparent: true, opacity: 0.45 })
+    );
+    horizonArc.rotation.x = -Math.PI / 2;
+    horizonArc.position.y = -0.49;
+    this.scene.add(horizonArc);
 
     this.dynamicGroup = new THREE.Group();
     this.scene.add(this.dynamicGroup);
+    this.pulseGroup = new THREE.Group();
+    this.scene.add(this.pulseGroup);
 
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
     this.downPos = { x: 0, y: 0 };
     this.clock = new THREE.Clock();
 
-    this._bindInteractions();
-    this._setupResize();
+    this._bindEvents();
     this._animate = this._animate.bind(this);
     this.renderer.setAnimationLoop(this._animate);
-
-    // Expose WebXR button if browser supports immersive XR
-    if (navigator.xr && typeof navigator.xr.isSessionSupported === "function") {
-      navigator.xr.isSessionSupported("immersive-vr").then((supported) => {
-        const btn = document.getElementById("btn-enter-webxr");
-        if (btn && supported) {
-          btn.hidden = false;
-          this.renderer.xr.enabled = true;
-          btn.onclick = async () => {
-            const session = await navigator.xr.requestSession("immersive-vr", {
-              optionalFeatures: ["local-floor", "hand-tracking"],
-            });
-            this.renderer.xr.setSession(session);
-          };
-        }
-      });
-    }
   }
 
   resetCamera() {
-    this.camera.position.set(0, 4.1, 6.2);
-    this.controls.target.set(0, 0.55, 0);
+    this.camera.position.set(0, 2.35, 6.8);
+    this.controls.target.set(0, 1.15, -1.2);
     this.controls.update();
   }
 
-  _bindInteractions() {
+  _bindEvents() {
     const dom = this.renderer.domElement;
     dom.addEventListener("pointerdown", (ev) => {
       this.downPos = { x: ev.clientX, y: ev.clientY };
     });
-
     dom.addEventListener("pointerup", (ev) => {
-      const dist = Math.hypot(ev.clientX - this.downPos.x, ev.clientY - this.downPos.y);
-      if (dist > 6) return; // Was an orbit drag, not a click
-
+      if (Math.hypot(ev.clientX - this.downPos.x, ev.clientY - this.downPos.y) > 6) return;
       const rect = dom.getBoundingClientRect();
       this.pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
       this.pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
-
       this.raycaster.setFromCamera(this.pointer, this.camera);
       const hits = this.raycaster.intersectObjects(this.interactiveMeshes, false);
-      if (hits.length > 0) {
-        const hit = hits[0].object;
-        if (hit.userData?.packetId) {
-          state.selectedPacketId = hit.userData.packetId;
-          renderAll();
-        } else if (hit.userData?.capKey) {
-          updateCapacity(hit.userData.capKey, 1);
-        }
+      if (!hits.length) return;
+      const data = hits[0].object.userData || {};
+      if (data.packetId) {
+        state.selectedPacketId = data.packetId;
+        renderAll();
+      } else if (data.stationId) {
+        const key = `station:${data.stationId}`;
+        state.wingMode = state.wingMode === key ? null : key;
+        renderAll();
       }
     });
-  }
 
-  _setupResize() {
-    const onResize = () => {
-      if (!this.host || state.viewMode !== "spatial") return;
+    window.addEventListener("resize", () => {
+      if (state.viewMode !== "spatial") return;
       const w = Math.max(320, this.host.clientWidth || window.innerWidth);
-      const h = Math.max(320, this.host.clientHeight || window.innerHeight - 64);
+      const h = Math.max(320, this.host.clientHeight || window.innerHeight - 58);
       this.camera.aspect = w / h;
       this.camera.updateProjectionMatrix();
       this.renderer.setSize(w, h);
-    };
-    window.addEventListener("resize", onResize);
-    this._onResize = onResize;
+    });
+  }
+
+  launchHandoffPulses(routes) {
+    const THREE = this.THREE;
+    const origin = new THREE.Vector3(0, 0.35, 1.1);
+    for (const r of routes || []) {
+      const dest = this.stationPositions[r.station_id];
+      if (!dest) continue;
+      const st = STATIONS.find((s) => s.id === r.station_id);
+      const geo = new THREE.SphereGeometry(0.14, 20, 20);
+      const mat = new THREE.MeshStandardMaterial({
+        color: st ? st.hex : 0x38bdf8,
+        emissive: st ? st.hex : 0x38bdf8,
+        emissiveIntensity: 0.85,
+        roughness: 0.15,
+      });
+      const orb = new THREE.Mesh(geo, mat);
+      orb.position.copy(origin);
+      this.pulseGroup.add(orb);
+      this.flyingPulses.push({
+        mesh: orb,
+        geo,
+        mat,
+        start: origin.clone(),
+        end: dest.clone(),
+        t: 0,
+      });
+    }
   }
 
   clearDynamic() {
@@ -1062,146 +1002,270 @@ class SpatialTriageStage {
     }
     this.disposables = [];
     this.interactiveMeshes = [];
-    this.selectedBeacon = null;
   }
 
   sync(appState) {
     const THREE = this.THREE;
     this.clearDynamic();
 
-    // 1. Center 4 Interactive ED Capacity Pillars
-    const c = appState.capacity;
-    const zones = [
-      { key: "bedsOpen", label: `Beds ${c.bedsOpen}/${c.bedsTotal}`, x: -0.9, z: 0, ratio: c.bedsOpen / Math.max(1, c.bedsTotal), color: 0x2563eb },
-      { key: "hallwayOpen", label: `Hall ${c.hallwayOpen}/${c.hallwayTotal}`, x: -0.3, z: 0, ratio: c.hallwayOpen / Math.max(1, c.hallwayTotal), color: 0xd97706 },
-      { key: "fastTrackOpen", label: `Fast ${c.fastTrackOpen}/${c.fastTrackTotal}`, x: 0.3, z: 0, ratio: c.fastTrackOpen / Math.max(1, c.fastTrackTotal), color: 0x16a34a },
-      { key: "waitboard", label: `Wait ${c.waitboard}`, x: 0.9, z: 0, ratio: Math.min(1, c.waitboard / 24), color: 0x64748b },
+    const pkt = activePacket();
+    const activeInputs = new Set(pkt?.clinical_routing?.active_inputs || ["door_triage"]);
+    const activeStations = new Set(
+      (pkt?.clinical_routing?.what_happens_next || []).map((r) => r.station_id)
+    );
+    const hub = new THREE.Vector3(0, 0.25, 1.05);
+
+    // 1. Left Upstream Input Agent Spheres + Convergence Beams into Crossroads Hub
+    const inputs = [
+      { id: "door_triage", title: "Door Triage", sub: "vitals & nurse hx", pos: [-4.2, 1.15, -1.3], hex: 0x2dd4bf },
+      { id: "chart_pharmacy", title: "Chart & Meds", sub: "PMH & dispense", pos: [-2.85, 0.85, 0.35], hex: 0x60a5fa },
+      { id: "labs_micro", title: "Labs & Micro", sub: "cultures & Hgb", pos: [-2.1, 0.15, 2.05], hex: 0xf59e0b },
     ];
 
-    for (const z of zones) {
-      const h = 0.28 + 0.9 * z.ratio;
-      const geo = new THREE.BoxGeometry(0.36, h, 0.36);
-      const mat = new THREE.MeshStandardMaterial({
-        color: z.color,
-        roughness: 0.32,
-        metalness: 0.18,
+    for (const inp of inputs) {
+      const isHot = activeInputs.has(inp.id);
+      const pVec = new THREE.Vector3(...inp.pos);
+      const geo = new THREE.SphereGeometry(isHot ? 0.34 : 0.27, 32, 32);
+      const mat = new THREE.MeshPhysicalMaterial({
+        color: inp.hex,
+        roughness: 0.18,
+        metalness: 0.1,
+        clearcoat: 0.8,
+        emissive: isHot ? inp.hex : 0x000000,
+        emissiveIntensity: isHot ? 0.32 : 0.0,
       });
       this.disposables.push(geo, mat);
       const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(z.x, h / 2, z.z);
-      mesh.userData = { capKey: z.key };
+      mesh.position.copy(pVec);
+      this.dynamicGroup.add(mesh);
+
+      const lineGeo = new THREE.BufferGeometry().setFromPoints([pVec, hub]);
+      const lineMat = new THREE.LineBasicMaterial({
+        color: isHot ? 0xe2e8f0 : 0x334155,
+        transparent: true,
+        opacity: isHot ? 0.9 : 0.35,
+      });
+      this.disposables.push(lineGeo, lineMat);
+      this.dynamicGroup.add(new THREE.Line(lineGeo, lineMat));
+
+      const pill = makePillSprite(
+        THREE,
+        inp.title,
+        isHot ? `${inp.sub} · ACTIVE` : inp.sub,
+        isHot ? "rgba(15,23,42,0.95)" : "rgba(30,41,59,0.78)",
+        isHot ? "#7DD3FC" : "#475569"
+      );
+      pill.sprite.position.set(pVec.x, pVec.y + 0.58, pVec.z);
+      this.disposables.push(pill.tex, pill.mat);
+      this.dynamicGroup.add(pill.sprite);
+    }
+
+    // 2. Right Downstream Destination Spheres + Outbound Routing Beams + Live `received N`
+    const destCoords = {
+      alert_team: [3.95, 1.35, -1.45],
+      bed_board: [4.45, 0.95, 0.25],
+      wr_orders: [3.05, 0.45, 1.75],
+      fast_track: [1.95, -0.05, 2.55],
+    };
+
+    for (const st of STATIONS) {
+      const pVec = new THREE.Vector3(...destCoords[st.id]);
+      this.stationPositions[st.id] = pVec;
+      const isTarget = activeStations.has(st.id);
+      const rCount = (appState.routedByStation[st.id] || []).length;
+
+      const geo = new THREE.SphereGeometry(isTarget ? 0.38 : 0.30, 32, 32);
+      const mat = new THREE.MeshPhysicalMaterial({
+        color: st.hex,
+        roughness: 0.16,
+        metalness: 0.12,
+        clearcoat: 0.85,
+        emissive: isTarget ? st.hex : 0x000000,
+        emissiveIntensity: isTarget ? 0.38 : 0.05,
+      });
+      this.disposables.push(geo, mat);
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.copy(pVec);
+      mesh.userData = { stationId: st.id };
       this.dynamicGroup.add(mesh);
       this.interactiveMeshes.push(mesh);
 
-      const lbl = createLabelSprite(THREE, z.label, "#0F1722", "#E2E8F0");
-      lbl.sprite.position.set(z.x, h + 0.22, z.z);
-      this.disposables.push(lbl.tex, lbl.mat);
-      this.dynamicGroup.add(lbl.sprite);
+      const lineGeo = new THREE.BufferGeometry().setFromPoints([hub, pVec]);
+      const lineMat = new THREE.LineBasicMaterial({
+        color: isTarget ? 0xffffff : 0x334155,
+        transparent: true,
+        opacity: isTarget ? 0.95 : 0.32,
+      });
+      this.disposables.push(lineGeo, lineMat);
+      this.dynamicGroup.add(new THREE.Line(lineGeo, lineMat));
+
+      const pill = makePillSprite(
+        THREE,
+        st.short,
+        `received ${rCount}`,
+        isTarget ? "rgba(15,23,42,0.96)" : "rgba(30,41,59,0.82)",
+        isTarget ? "#86EFAC" : "#64748B"
+      );
+      pill.sprite.position.set(pVec.x, pVec.y + 0.62, pVec.z);
+      this.disposables.push(pill.tex, pill.mat);
+      this.dynamicGroup.add(pill.sprite);
     }
 
-    // 2. Outer Ring of 22 Calibrated Patient Totems
-    const pkts = appState.packets || [];
-    const n = Math.max(1, pkts.length);
+    // 3. Center Horizon Queue Conveyor Row (11 Glossy Priority Spheres, matching SDR!)
+    const pending = sortedPackets().filter((p) => !appState.reviewedPacketIds.has(p.packet_id));
+    const horizonSlice = pending.slice(0, 11);
+    const count = horizonSlice.length;
+    const spacing = 0.62;
+    const startX = -((count - 1) * spacing) / 2;
 
-    pkts.forEach((pkt, idx) => {
-      const angle = (idx / n) * Math.PI * 2 - Math.PI / 2;
-      const radius = 3.18;
-      const pCal = Math.max(
-        pkt.safe_gate?.p1_framing_blind || 0.02,
-        pkt.safe_gate?.p2_calibrated || 0.02
-      );
-      const height = 0.32 + 1.85 * Math.min(1, pCal);
-      const gate = pkt.safe_gate?.gate_state;
-      const hex =
-        gate === "CERTIFIED_SAFE_ROUTINE"
-          ? 0x218348
-          : gate === "AMBIGUOUS_HOLD_VOI"
-          ? 0xd48b08
-          : 0xc9352b;
+    horizonSlice.forEach((qPkt, idx) => {
+      const isCur = qPkt.packet_id === pkt?.packet_id;
+      const gs = qPkt.safe_gate?.gate_state;
+      const sphHex =
+        gs === "CERTIFIED_SAFE_ROUTINE"
+          ? 0x22c55e
+          : gs === "AMBIGUOUS_HOLD_VOI"
+          ? 0xeab308
+          : 0xdc2626;
 
-      const isSel = pkt.packet_id === appState.selectedPacketId;
-      const isReviewed = appState.reviewedPacketIds.has(pkt.packet_id);
-
-      const geo = new THREE.CylinderGeometry(isSel ? 0.16 : 0.12, isSel ? 0.18 : 0.13, height, 24);
-      const mat = new THREE.MeshStandardMaterial({
-        color: hex,
-        roughness: 0.28,
-        metalness: 0.15,
-        emissive: isSel ? hex : 0x000000,
-        emissiveIntensity: isSel ? 0.55 : 0.0,
-        opacity: isReviewed ? 0.45 : 1.0,
-        transparent: isReviewed,
+      const geo = new THREE.SphereGeometry(isCur ? 0.29 : 0.22, 32, 32);
+      const mat = new THREE.MeshPhysicalMaterial({
+        color: sphHex,
+        roughness: 0.15,
+        metalness: 0.08,
+        clearcoat: 0.9,
+        emissive: isCur ? sphHex : 0x000000,
+        emissiveIntensity: isCur ? 0.45 : 0.0,
       });
       this.disposables.push(geo, mat);
-
-      const x = Math.cos(angle) * radius;
-      const z = Math.sin(angle) * radius;
-      const totem = new THREE.Mesh(geo, mat);
-      totem.position.set(x, height / 2, z);
-      totem.userData = { packetId: pkt.packet_id };
-      this.dynamicGroup.add(totem);
-      this.interactiveMeshes.push(totem);
-
-      const shortId = pkt.packet_id.replace("syn-", "");
-      const lbl = createLabelSprite(
-        THREE,
-        isSel ? `▶ ${shortId}` : shortId,
-        isSel ? "#F8FAFC" : "#1E293B",
-        isSel ? "#0F1722" : "#F8FAFC"
-      );
-      lbl.sprite.position.set(x, height + 0.22, z);
-      this.disposables.push(lbl.tex, lbl.mat);
-      this.dynamicGroup.add(lbl.sprite);
-
-      if (isSel) {
-        const ringG = new THREE.RingGeometry(0.24, 0.31, 32);
-        const ringM = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
-        const beacon = new THREE.Mesh(ringG, ringM);
-        beacon.rotation.x = -Math.PI / 2;
-        beacon.position.set(x, 0.02, z);
-        this.disposables.push(ringG, ringM);
-        this.dynamicGroup.add(beacon);
-        this.selectedBeacon = beacon;
-      }
+      const sph = new THREE.Mesh(geo, mat);
+      sph.position.set(startX + idx * spacing, 1.48, -2.05);
+      sph.userData = { packetId: qPkt.packet_id };
+      this.dynamicGroup.add(sph);
+      this.interactiveMeshes.push(sph);
     });
   }
 
   _animate() {
-    if (state.viewMode !== "spatial" && !this.renderer.xr.isPresenting) return;
-    const t = this.clock.getElapsedTime();
-    if (this.selectedBeacon) {
-      const pulse = 1 + 0.12 * Math.sin(t * 4.0);
-      this.selectedBeacon.scale.set(pulse, pulse, 1);
+    const dt = Math.min(0.05, this.clock.getDelta());
+    if (this.flyingPulses.length > 0) {
+      const keep = [];
+      for (const p of this.flyingPulses) {
+        p.t += dt * 1.9;
+        if (p.t >= 1.0) {
+          this.pulseGroup.remove(p.mesh);
+          p.geo.dispose();
+          p.mat.dispose();
+        } else {
+          p.mesh.position.lerpVectors(p.start, p.end, p.t);
+          p.mesh.position.y += Math.sin(p.t * Math.PI) * 0.45;
+          keep.push(p);
+        }
+      }
+      this.flyingPulses = keep;
     }
+
+    if (state.viewMode !== "spatial") return;
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
   }
 }
 
-async function ensureSpatialStage() {
-  if (state.spatialStage) {
-    state.spatialStage._onResize?.();
-    state.spatialStage.sync(state);
+async function ensureSpatialArena() {
+  if (state.spatialArena) {
+    state.spatialArena.sync(state);
     return;
   }
   const host = document.getElementById("xr-canvas-host");
   if (!host) return;
-
   try {
     const [THREE, orbitMod] = await Promise.all([
       import("three"),
       import("three/addons/controls/OrbitControls.js"),
     ]);
-    state.spatialStage = new SpatialTriageStage(THREE, orbitMod.OrbitControls, host);
-    state.spatialStage.sync(state);
+    state.spatialArena = new SpatialCrossroadsArena(THREE, orbitMod.OrbitControls, host);
+    state.spatialArena.sync(state);
   } catch (err) {
-    host.innerHTML = `
-      <div style="padding:32px;color:#E2E8F0;max-width:560px;">
-        <h3 style="margin-top:0;">3D WebGL Renderer Unavailable</h3>
-        <p>Could not load Three.js WebGL modules (${esc(err.message)}). Focused Action and Full Workbench remain active.</p>
-      </div>
-    `;
+    host.innerHTML = `<div style="padding:32px;color:#E2E8F0;">3D WebGL unavailable (${esc(err.message)}).</div>`;
   }
+}
+
+/* --------------------------------------------------------------------------
+ * Mode 3: Dedicated Statistical Safety Engine Research View
+ * -------------------------------------------------------------------------- */
+function renderStatisticalEngineTab() {
+  const wrap = document.getElementById("engine-workbench-wrap");
+  if (!wrap) return;
+  const pkt = activePacket();
+  if (!pkt) return;
+
+  const sg = pkt.safe_gate || {};
+  const vr = pkt.voi_routing || {};
+  const orth = pkt.swarm?.orthogonality || {};
+  const channels = vr.channels || [];
+
+  wrap.innerHTML = `
+    <div class="panel-surface" style="padding:18px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <h2 style="margin:0;font-size:16px;">Active Encounter Calibration &amp; Conformal Receipt (${esc(pkt.packet_id)})</h2>
+        ${vr.cfbh_alert_certified ? `<span class="badge badge-gate-crit">CfBH Certified</span>` : `<span class="badge badge-neutral">Sub-CfBH</span>`}
+      </div>
+      <p style="margin:0 0 12px;font-size:12.5px;color:var(--ink-secondary);">
+        Research diagnostics kept off the rapid Provider Crossroads surface so clinicians see zero math clutter.
+      </p>
+      <table class="metric-table">
+        <tbody>
+          <tr><th>Stage-1 Door Posterior p₁(x)</th><td class="num">${pct(sg.p1_calibrated)}</td></tr>
+          <tr><th>Framing-Blind Objective p₁,blind(x)</th><td class="num">${pct(sg.p1_framing_blind)}</td></tr>
+          <tr><th>Stage-2 Full Chart Posterior p₂(x)</th><td class="num">${pct(sg.p2_calibrated)}</td></tr>
+          <tr><th>Bayes Escalation Threshold τ*</th><td class="num">${pct(sg.tau_bayes_triage)}</td></tr>
+          <tr><th>Capacity-Adjusted Space τ*space</th><td class="num">${pct(sg.tau_space_capacity_adjusted)}</td></tr>
+          <tr><th>Conformal Safe Routine Cutoff τsafe</th><td class="num">${pct(sg.tau_safe_routine)}</td></tr>
+          <tr><th>Positive Conformal Miss p-value</th><td class="num">${Number(sg.conformal_miss_pvalue ?? 0).toFixed(4)}</td></tr>
+          <tr><th>Cal FOR 95% Wilson Upper Bound</th><td class="num">${pct(sg.cal_for_wilson_upper)}</td></tr>
+          <tr><th>Base-Rate Evidence Deficit Dq(x)</th><td class="num">${Number(sg.evidence_deficit_nats ?? 0).toFixed(2)} nats</td></tr>
+          <tr><th>Orthogonal G_{m|S} Synthesis</th><td class="num">${esc(orth.n_orthogonal_selected ?? 0)} selected · ${esc(orth.n_echoes_suppressed ?? 0)} echoes · ${esc(orth.n_twins_suppressed ?? 0)} twins pruned</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="panel-surface" style="padding:18px;">
+      <h2 style="margin:0 0 10px;font-size:16px;">9-Node Martingale Gauss-Hermite VOI Channel Table</h2>
+      ${
+        vr.triage_voi_zero_already_above_tau
+          ? `<div class="voi-note-box" style="margin-bottom:10px;background:var(--bg-crit);border-color:var(--border-crit);color:var(--ink-crit);font-weight:650;">
+              High Risk ≠ High VOI: Already above τ* (or missing acute door eval) → Escalation VOI = 0.000.
+            </div>`
+          : `<div class="voi-note-box" style="margin-bottom:10px;">
+              Observation-aware VOI triggers external/bedside queries strictly when unobserved and expected decision-flip gain exceeds query cost.
+            </div>`
+      }
+      <table class="metric-table">
+        <thead>
+          <tr><th>Channel</th><th style="text-align:right;">VOI</th><th style="text-align:right;">Cost</th><th style="text-align:right;">Status</th></tr>
+        </thead>
+        <tbody>
+          ${channels
+            .map((ch) => {
+              const badge = ch.trigger_query
+                ? `<span class="badge badge-gate-hold">Actionable Query</span>`
+                : ch.already_in_chart
+                ? `<span class="badge badge-gate-safe">In Chart</span>`
+                : `<span class="badge badge-neutral">Skip (Low VOI)</span>`;
+              return `
+                <tr>
+                  <td>${esc(ch.display_name)}</td>
+                  <td class="num">${Number(ch.voi_expected_gain).toFixed(3)}</td>
+                  <td class="num">${Number(ch.query_cost).toFixed(3)}</td>
+                  <td style="text-align:right;">${badge}</td>
+                </tr>
+              `;
+            })
+            .join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
 }
 
 function setViewMode(mode) {
@@ -1210,59 +1274,182 @@ function setViewMode(mode) {
   document.querySelectorAll("[data-view-tab]").forEach((btn) => {
     btn.setAttribute("aria-selected", String(btn.dataset.viewTab === mode));
   });
-
-  const stageWrap = document.getElementById("spatial-stage-wrap");
-  if (stageWrap) {
-    stageWrap.hidden = mode !== "spatial";
-  }
+  document.getElementById("spatial-stage-wrap").hidden = mode !== "spatial";
+  document.getElementById("engine-workbench-wrap").hidden = mode !== "engine";
 
   renderAll();
   if (mode === "spatial") {
     requestAnimationFrame(() => {
-      ensureSpatialStage();
+      ensureSpatialArena();
     });
   }
 }
 
 function renderAll() {
-  renderCapacityStrip();
+  renderSituationalStrip();
   renderQueue();
-  renderNowGate();
-  if (state.viewMode === "workbench") {
-    renderSafetyRail();
-  }
-  if (state.viewMode === "spatial") {
-    renderSpatialHud();
-    if (state.spatialStage) {
-      state.spatialStage.sync(state);
-    }
+  if (state.viewMode === "crossroads") {
+    renderCrossroads2D();
+  } else if (state.viewMode === "spatial") {
+    renderSpatialOverlays();
+    state.spatialArena?.sync(state);
+  } else if (state.viewMode === "engine") {
+    renderStatisticalEngineTab();
   }
 }
 
 /* --------------------------------------------------------------------------
- * API Actions (Capacity, VOI Pre-Fetch, Ledger Commit, Intake, Audit)
+ * Routing Commit, Actionable Query Execution, Capacity & Dialogs
  * -------------------------------------------------------------------------- */
-async function loadInitialQueue() {
-  const [, pktResp, ledResp] = await Promise.all([
-    fetch("/api/health").then((r) => r.json()),
-    fetch("/api/packets").then((r) => r.json()),
-    fetch("/api/ledger").then((r) => r.json()),
-  ]);
+async function executeRouteForPacket(isModified = false) {
+  const pkt = activePacket();
+  if (!pkt) return;
+  const recs = pkt.recommendations || [];
+  const cr = pkt.clinical_routing || {};
+  const d = isModified ? ensureModifyDraft(pkt) : null;
 
-  state.capacity = pktResp.capacity || state.capacity;
-  state.packets = pktResp.packets || [];
-  state.ledgerCount = ledResp.count || 0;
-  for (const e of ledResp.entries || []) {
-    if (e.packetId) state.reviewedPacketIds.add(e.packetId);
+  const entries = recs.map((rec) => {
+    let changed = false;
+    let finalVal = rec.value;
+
+    if (isModified && d) {
+      if (rec.type === "triage_status" && d.esi !== rec.value.triage_status) {
+        changed = true;
+        finalVal = { type: "triage_status", triage_status: d.esi };
+      } else if (rec.type === "space_priority" && d.space !== rec.value.priority) {
+        changed = true;
+        finalVal = { type: "space_priority", priority: d.space };
+      } else if (rec.type === "eval_upgrade") {
+        const curNeed = (rec.value.needs || [])[0] || "none";
+        if (d.evalNeed !== curNeed) {
+          changed = true;
+          finalVal = { type: "eval_upgrade", needs: d.evalNeed === "none" ? [] : [d.evalNeed] };
+        }
+      } else if (rec.type === "wr_orders" && d.holdOrders && (rec.value.items || []).length > 0) {
+        changed = true;
+        finalVal = { type: "wr_orders", action: "none", items: [] };
+      } else if (rec.type === "wr_meds" && d.medChoice !== "recommended") {
+        changed = true;
+        const medMap = {
+          apap_only: ["Acetaminophen (APAP)"],
+          zofran_only: ["Ondansetron"],
+          npo_hold: [],
+        };
+        finalVal = { type: "wr_meds", meds: medMap[d.medChoice] || [] };
+      }
+    }
+
+    return {
+      packetId: pkt.packet_id,
+      decisionType: rec.type,
+      providerAction: changed ? "change" : "accept",
+      overrideReason: changed ? d.reason : null,
+      gateState: pkt.safe_gate?.gate_state,
+      modelRecommendation: rec,
+      finalValue: finalVal,
+    };
+  });
+
+  const res = await fetch("/api/ledger", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ entries }),
+  });
+  const payload = await res.json();
+  if (!res.ok) {
+    showToast(payload.error || "Failed to log decision.");
+    return;
   }
+
+  // Record downstream station handoffs & animate 3D orbs!
+  let finalRoutes = cr.what_happens_next || [];
+  let headlineUsed = cr.headline_decision || "Routed";
+  if (isModified && d) {
+    const spLbl = (SPACE_CHOICES.find(([k]) => k === d.space) || [d.space, d.space])[1];
+    headlineUsed = `Modified: ${d.esi} · ${spLbl}`;
+    finalRoutes = [
+      ...(d.evalNeed !== "none" || d.esi === "ESI-1"
+        ? [{ station_id: "alert_team", station_label: "Alert & Resus Team", summary: `${d.esi} / ${d.evalNeed.toUpperCase()}`, urgent: true }]
+        : []),
+      {
+        station_id: d.space === "fast_track" ? "fast_track" : "bed_board",
+        station_label: d.space === "fast_track" ? "Fast Track / Waitboard" : "Charge Nurse & Bed Board",
+        summary: `${d.esi} → ${spLbl}`,
+        urgent: d.space === "immediate" || d.space === "next_bed",
+      },
+    ];
+  }
+
+  const timeStr = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const ageSex = `${pkt.encounter?.age_years}${pkt.encounter?.sex}`;
+  for (const r of finalRoutes) {
+    if (!state.routedByStation[r.station_id]) state.routedByStation[r.station_id] = [];
+    state.routedByStation[r.station_id].push({
+      packetId: pkt.packet_id,
+      ageSex,
+      chief: pkt.encounter?.chief_complaint,
+      summary: r.summary,
+      timeStr,
+    });
+  }
+
+  if (state.spatialArena && state.viewMode === "spatial") {
+    state.spatialArena.launchHandoffPulses(finalRoutes);
+  }
+
+  const anyChanged = entries.some((e) => e.providerAction === "change");
+  state.reviewedPacketIds.add(pkt.packet_id);
+  state.stats.reviewed += 1;
+  state.stats.decisions += entries.length;
+  if (cr.hard_trigger?.active) state.stats.hardTriggers += 1;
+  if (pkt.safe_gate?.gate_state === "CERTIFIED_SAFE_ROUTINE" && !anyChanged) state.stats.fastPassed += 1;
+  if (anyChanged) state.stats.overrides += 1;
+
+  state.routedHistory.push({
+    packetId: pkt.packet_id,
+    ageSex,
+    chief: pkt.encounter?.chief_complaint,
+    headline: headlineUsed,
+    modified: anyChanged,
+    ts: timeStr,
+  });
+
+  state.ledgerCount = payload.total_entries || state.ledgerCount + entries.length;
   const ledCountEl = document.getElementById("ledger-count");
   if (ledCountEl) ledCountEl.textContent = String(state.ledgerCount);
 
-  const defaultPkt =
-    state.packets.find((p) => p.packet_id === "syn-ED-022") || state.packets[0] || null;
-  state.selectedPacketId = defaultPkt ? defaultPkt.packet_id : null;
+  showToast(`Routed ${pkt.packet_id} → ${finalRoutes.map((r) => r.station_label).join(" + ")}`);
 
+  if (state.wingMode === "modify" || state.wingMode === "ask") {
+    state.wingMode = null;
+  }
+  const nextPending = sortedPackets().find((p) => !state.reviewedPacketIds.has(p.packet_id));
+  if (nextPending) {
+    state.selectedPacketId = nextPending.packet_id;
+  }
   renderAll();
+}
+
+async function triggerActionableQuery(queryId) {
+  const pkt = activePacket();
+  if (!pkt) return;
+  const resp = await fetch("/api/evaluate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      packet_id: pkt.packet_id,
+      unlocked_channels: [queryId],
+    }),
+  }).then((r) => r.json());
+
+  if (resp.packet) {
+    state.packets = state.packets.map((p) =>
+      p.packet_id === resp.packet.packet_id ? resp.packet : p
+    );
+    state.stats.asksSent += 1;
+    showToast(`Dispatched check (${queryId}) for ${pkt.packet_id}.`);
+    renderAll();
+  }
 }
 
 async function updateCapacity(key, delta) {
@@ -1275,11 +1462,7 @@ async function updateCapacity(key, delta) {
       : key === "fastTrackOpen"
       ? "fastTrackTotal"
       : null;
-  let val = Number(next[key] || 0) + delta;
-  if (maxKey && val > Number(next[maxKey])) {
-    val = 0; // Wrap around smoothly when clicking 3D capacity pillars
-  }
-  val = Math.max(0, val);
+  let val = Math.max(0, Number(next[key] || 0) + delta);
   if (maxKey) val = Math.min(Number(next[maxKey]), val);
   next[key] = val;
 
@@ -1292,86 +1475,26 @@ async function updateCapacity(key, delta) {
   if (resp.packets) {
     state.capacity = resp.capacity;
     state.packets = resp.packets;
-    state.draftDecisions = {};
     renderAll();
   }
 }
 
-async function prefetchHighVoiChannels() {
-  const pkt = activePacket();
-  if (!pkt) return;
-  const triggered = pkt.voi_routing?.auto_triggered_channels || [];
-  if (!triggered.length) return;
+async function loadInitialQueue() {
+  const [pktResp, ledResp] = await Promise.all([
+    fetch("/api/packets").then((r) => r.json()),
+    fetch("/api/ledger").then((r) => r.json()),
+  ]);
 
-  const resp = await fetch("/api/evaluate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      packet_id: pkt.packet_id,
-      unlocked_channels: triggered,
-    }),
-  }).then((r) => r.json());
-
-  if (resp.packet) {
-    state.packets = state.packets.map((p) =>
-      p.packet_id === resp.packet.packet_id ? resp.packet : p
-    );
-    showToast(`Pre-fetched ${triggered.length} high-VOI Stage-2 channel(s) for ${pkt.packet_id}.`);
-    renderAll();
-  }
-}
-
-async function commitDecisionsForActivePacket(forceAcceptAll = false) {
-  const pkt = activePacket();
-  if (!pkt) return;
-  const drafts = ensureDraftForPacket(pkt);
-
-  const entries = [];
-  for (const rec of pkt.recommendations || []) {
-    const d = forceAcceptAll
-      ? { action: "accept", overrideReason: "", finalText: rec.proposal }
-      : drafts[rec.type];
-
-    if (d.action === "change" && String(d.overrideReason || "").trim().length < 8) {
-      showToast(
-        `Override rationale for "${DECISION_TITLES[rec.type]}" must be at least 8 characters.`
-      );
-      return;
-    }
-
-    entries.push({
-      packetId: pkt.packet_id,
-      decisionType: rec.type,
-      providerAction: d.action,
-      overrideReason: d.action === "change" ? d.overrideReason.trim() : null,
-      gateState: pkt.safe_gate?.gate_state,
-      modelRecommendation: rec,
-      finalValue: d.action === "change" ? { customProposal: d.finalText } : rec.value,
-    });
-  }
-
-  const res = await fetch("/api/ledger", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ entries }),
-  });
-  const payload = await res.json();
-  if (!res.ok) {
-    showToast(payload.error || "Failed to write to ledger.");
-    return;
-  }
-
-  state.reviewedPacketIds.add(pkt.packet_id);
-  state.ledgerCount = payload.total_entries || state.ledgerCount + entries.length;
+  state.capacity = pktResp.capacity || state.capacity;
+  state.packets = pktResp.packets || [];
+  state.ledgerCount = ledResp.count || 0;
   const ledCountEl = document.getElementById("ledger-count");
   if (ledCountEl) ledCountEl.textContent = String(state.ledgerCount);
-  showToast(`Committed 5 PITM decisions for ${pkt.packet_id} (SHA-256 chain verified).`);
 
-  // Advance automatically to next unreviewed arrival in queue
-  const nextUnreviewed = state.packets.find((p) => !state.reviewedPacketIds.has(p.packet_id));
-  if (nextUnreviewed) {
-    state.selectedPacketId = nextUnreviewed.packet_id;
-  }
+  const ordered = sortedPackets();
+  const flagship =
+    ordered.find((p) => p.packet_id === "syn-ED-022") || ordered[0] || null;
+  state.selectedPacketId = flagship ? flagship.packet_id : null;
   renderAll();
 }
 
@@ -1408,7 +1531,7 @@ async function openLedgerDialog() {
           <td>${esc(e.packetId)}</td>
           <td>${esc(e.decisionType)}</td>
           <td><strong>${esc(e.providerAction)}</strong>${e.overrideReason ? ` — ${esc(e.overrideReason)}` : ""}</td>
-          <td class="tabular" style="font-family:ui-monospace,monospace;font-size:11px;">${esc(String(e.entry_hash || "").slice(0, 14))}…</td>
+          <td class="tabular" style="font-family:ui-monospace,monospace;font-size:12px;">${esc(String(e.entry_hash || "").slice(0, 14))}…</td>
         </tr>
       `
     )
@@ -1419,16 +1542,12 @@ async function openLedgerDialog() {
       <strong>Unbroken SHA-256 Chain: ${data.valid_hash_chain ? "Verified" : "Tamper Detected"}</strong>
       <span class="badge badge-neutral">${esc(data.count)} Total Entries</span>
     </div>
-    <h3 class="subbox-title">Two-Phase Constrained Neyman Shadow Audit</h3>
+    <h3 style="margin:0 0 8px;font-size:14px;">Two-Phase Constrained Neyman Shadow Audit</h3>
     ${shadowHtml}
-    <h3 class="subbox-title">Recent Hash-Chained Decisions</h3>
+    <h3 style="margin:0 0 8px;font-size:14px;">Recent Hash-Chained Decisions</h3>
     <table class="metric-table">
-      <thead>
-        <tr><th>Packet</th><th>Decision</th><th>Action</th><th>Entry SHA-256</th></tr>
-      </thead>
-      <tbody>
-        ${rows || `<tr><td colspan="4">No decisions logged yet. Commit a packet on the Now Gate.</td></tr>`}
-      </tbody>
+      <thead><tr><th>Packet</th><th>Decision</th><th>Action</th><th>Entry SHA-256</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="4">No decisions logged yet.</td></tr>`}</tbody>
     </table>
   `;
 }
@@ -1438,8 +1557,7 @@ async function openAuditDialog() {
   const body = document.getElementById("audit-dialog-body");
   if (!dlg || !body) return;
   dlg.showModal();
-  body.textContent =
-    "Computing Stage-A Neyman Two-Phase, Stage-B Martingale VOI / CfBH, and Stage-C Subgroup Calibration…";
+  body.textContent = "Retrieving Statistical Safety Engine verification receipt…";
 
   const a = await fetch("/api/safety/audit").then((r) => r.json());
   const cs = a.cohort_summary || {};
@@ -1448,63 +1566,28 @@ async function openAuditDialog() {
   const sb = a.stage_b_streaming_voi_and_conformal || {};
   const sg = sb.dual_conformal_safe_gate || {};
   const cf = sb.conformal_fdr_vs_mondrian || {};
-  const sub = a.stage_c_subgroup_calibration || {};
 
   body.innerHTML = `
     <div class="voi-note-box" style="margin-bottom:14px;">
       <strong>Split SHA-256:</strong> <code>${esc(String(a.split_hash || "").slice(0, 32))}…</code> ·
       <strong>Receipt SHA-256:</strong> <code>${esc(String(a.receipt_sha256 || "").slice(0, 24))}…</code>
     </div>
-
-    <h3 class="subbox-title">1. Stage-A Two-Phase Constrained Neyman Discovery &amp; 12-Channel Stress Pool</h3>
-    <table class="metric-table" style="margin-bottom:16px;">
+    <table class="metric-table">
       <tbody>
         <tr><th>Cohort Size &amp; Natural Prevalence</th><td class="num">N = ${esc(cs.n_encounters)} (π = ${(cs.natural_prevalence * 100).toFixed(1)}%)</td></tr>
         <tr><th>Held-Out Test AUROC (Stage-1 → Stage-2)</th><td class="num">${esc(cs.stage1_test_auroc)} → ${esc(cs.stage2_test_auroc)}</td></tr>
-        <tr><th>15% Constrained Neyman Pilot AUROC vs. 100% Full</th><td class="num">${esc(sa.mean_auroc_neyman_15pct)} vs. ${esc(sa.mean_auroc_full_100pct)} (85% query savings)</td></tr>
-        <tr><th>15% Neyman vs. 15% SRS Pilot AUROC</th><td class="num">${esc(sa.mean_auroc_neyman_15pct)} vs. ${esc(sa.mean_auroc_srs_15pct)} (Mean Kish ESS ${esc(sa.mean_neyman_kish_ess)})</td></tr>
-        <tr><th>Stress Pool False Selections (Null / Twin / Baseline Echo)</th><td class="num">${esc(sp.sequential_null_selected)} / ${esc(sp.sequential_twin_selected)} / ${esc(sp.sequential_echo_selected)}</td></tr>
-      </tbody>
-    </table>
-
-    <h3 class="subbox-title">2. Stage-B Martingale VOI, Tie-Smoothed CfBH &amp; Dual Conformal Safe-Gate</h3>
-    <table class="metric-table" style="margin-bottom:16px;">
-      <tbody>
-        <tr><th>Martingale VOI Net Benefit Advantage over Top-Risk Heuristic</th><td class="num">+${esc(sb.voi_vs_top_risk?.nb_advantage_per_1k_over_top_risk)} per 1,000 arrivals</td></tr>
-        <tr><th>Jin &amp; Candès Tie-Smoothed CfBH Realized FDP (Target ≤ 0.35)</th><td class="num">${Number(cf.cfbh_tie_smoothed?.realized_fdp ?? 0).toFixed(3)} (PPV ${(Number(cf.cfbh_tie_smoothed?.realized_ppv ?? 0) * 100).toFixed(1)}%)</td></tr>
-        <tr><th>Naive Mondrian {1} Singleton Realized FDP (Comparator)</th><td class="num">${Number(cf.mondrian_singleton_pos?.realized_fdp ?? 0).toFixed(3)} (Severe False-Alarm Inflation)</td></tr>
-        <tr><th>Dual Conformal Safe-Gate Certified Routine Fraction</th><td class="num">${(Number(sg.test_certified_routine_rate ?? 0) * 100).toFixed(1)}% of ED arrivals</td></tr>
-        <tr><th>Held-Out Test False Omission Rate (Cal 95% Wilson UCB ≤ 5.0%)</th><td class="num">${(Number(sg.test_realized_for ?? 0) * 100).toFixed(2)}% (Cal UCB ${(Number(sg.cal_for_wilson_95_upper ?? 0) * 100).toFixed(2)}%)</td></tr>
-      </tbody>
-    </table>
-
-    <h3 class="subbox-title">3. Stage-C Subgroup &amp; Framing-Blind Calibration Audit</h3>
-    <table class="metric-table">
-      <thead>
-        <tr><th>Subgroup</th><th style="text-align:right;">n</th><th style="text-align:right;">Prev</th><th style="text-align:right;">AUROC</th><th style="text-align:right;">ECE</th><th style="text-align:right;">Cox Slope</th></tr>
-      </thead>
-      <tbody>
-        ${Object.entries(sub)
-          .map(
-            ([k, v]) => `
-            <tr>
-              <td>${esc(k)}</td>
-              <td class="num">${esc(v.n)}</td>
-              <td class="num">${(v.prevalence * 100).toFixed(1)}%</td>
-              <td class="num">${Number(v.auroc).toFixed(3)}</td>
-              <td class="num">${Number(v.ece).toFixed(3)}</td>
-              <td class="num">${Number(v.cal_slope).toFixed(2)}</td>
-            </tr>
-          `
-          )
-          .join("")}
+        <tr><th>15% Constrained Neyman vs. 15% SRS Pilot AUROC</th><td class="num">${esc(sa.mean_auroc_neyman_15pct)} vs. ${esc(sa.mean_auroc_srs_15pct)} (85% query savings)</td></tr>
+        <tr><th>12-Channel Stress Pool (Null / Twin / Baseline Echo)</th><td class="num">${esc(sp.sequential_null_selected)} / ${esc(sp.sequential_twin_selected)} / ${esc(sp.sequential_echo_selected)}</td></tr>
+        <tr><th>Martingale VOI Net Benefit Gain over Top-Risk</th><td class="num">+${esc(sb.voi_vs_top_risk?.nb_advantage_per_1k_over_top_risk)} per 1,000 arrivals</td></tr>
+        <tr><th>Jin &amp; Candès CfBH Realized FDP vs. Mondrian {1}</th><td class="num">${Number(cf.cfbh_tie_smoothed?.realized_fdp ?? 0).toFixed(3)} vs. ${Number(cf.mondrian_singleton_pos?.realized_fdp ?? 0).toFixed(3)}</td></tr>
+        <tr><th>Dual Conformal Safe-Gate Test FOR (Cal 95% UCB ≤ 5%)</th><td class="num">${(Number(sg.test_realized_for ?? 0) * 100).toFixed(2)}% (${(Number(sg.test_certified_routine_rate ?? 0) * 100).toFixed(1)}% certified)</td></tr>
       </tbody>
     </table>
   `;
 }
 
 /* --------------------------------------------------------------------------
- * Event Delegation
+ * Event Delegation & Keyboard Speed Shortcuts
  * -------------------------------------------------------------------------- */
 function bindEvents() {
   document.addEventListener("click", (ev) => {
@@ -1514,9 +1597,11 @@ function bindEvents() {
       return;
     }
 
-    const switchBtn = ev.target.closest("[data-switch-tab]");
-    if (switchBtn) {
-      setViewMode(switchBtn.dataset.switchTab);
+    const stBtn = ev.target.closest("[data-open-station]");
+    if (stBtn) {
+      const key = `station:${stBtn.dataset.openStation}`;
+      state.wingMode = state.wingMode === key ? null : key;
+      renderAll();
       return;
     }
 
@@ -1529,6 +1614,7 @@ function bindEvents() {
     const pktBtn = ev.target.closest("[data-select-packet]");
     if (pktBtn) {
       state.selectedPacketId = pktBtn.dataset.selectPacket;
+      if (state.wingMode === "modify") ensureModifyDraft(activePacket());
       renderAll();
       return;
     }
@@ -1543,49 +1629,83 @@ function bindEvents() {
       return;
     }
 
-    const decBtn = ev.target.closest("[data-dec-type]");
-    if (decBtn) {
-      const pkt = activePacket();
-      if (!pkt) return;
-      const drafts = ensureDraftForPacket(pkt);
-      const t = decBtn.dataset.decType;
-      drafts[t].action = decBtn.dataset.act;
-      renderNowGate();
+    const wingToggle = ev.target.closest("[data-toggle-wing]");
+    if (wingToggle) {
+      const target = wingToggle.dataset.toggleWing;
+      state.wingMode = state.wingMode === target ? null : target;
+      if (state.wingMode === "modify") ensureModifyDraft(activePacket());
+      renderAll();
       return;
     }
 
-    const closeDlgBtn = ev.target.closest("[data-close-dialog]");
-    if (closeDlgBtn) {
-      document.getElementById(closeDlgBtn.dataset.closeDialog)?.close();
+    if (ev.target.closest("[data-close-wing]")) {
+      state.wingMode = null;
+      renderAll();
+      return;
+    }
+
+    const modBtn = ev.target.closest("[data-mod-field]");
+    if (modBtn) {
+      const d = ensureModifyDraft(activePacket());
+      if (!d) return;
+      const f = modBtn.dataset.modField;
+      const v = modBtn.dataset.modVal;
+      d[f] = f === "holdOrders" ? v === "true" : v;
+      renderAll();
+      return;
+    }
+
+    const qBtn = ev.target.closest("[data-trigger-query]");
+    if (qBtn) {
+      triggerActionableQuery(qBtn.dataset.triggerQuery);
       return;
     }
 
     const actBtn = ev.target.closest("[data-action]");
     if (actBtn) {
-      const act = actBtn.dataset.action;
-      if (act === "fastpass-routine" || act === "accept-all-reviewed") {
-        commitDecisionsForActivePacket(true);
-      } else if (act === "commit-five") {
-        commitDecisionsForActivePacket(false);
-      } else if (act === "prefetch-voi") {
-        prefetchHighVoiChannels();
+      if (actBtn.dataset.action === "approve-route") {
+        executeRouteForPacket(false);
+      } else if (actBtn.dataset.action === "commit-modified") {
+        executeRouteForPacket(true);
       }
       return;
     }
 
+    const closeDlg = ev.target.closest("[data-close-dialog]");
+    if (closeDlg) {
+      document.getElementById(closeDlg.dataset.closeDialog)?.close();
+      return;
+    }
+
     if (ev.target.closest("#btn-reset-camera")) {
-      state.spatialStage?.resetCamera();
+      state.spatialArena?.resetCamera();
     }
   });
 
-  document.addEventListener("input", (ev) => {
-    const pkt = activePacket();
-    if (!pkt) return;
-    const drafts = ensureDraftForPacket(pkt);
-    if (ev.target.matches("[data-override-reason]")) {
-      drafts[ev.target.dataset.overrideReason].overrideReason = ev.target.value;
-    } else if (ev.target.matches("[data-override-final]")) {
-      drafts[ev.target.dataset.overrideFinal].finalText = ev.target.value;
+  document.addEventListener("change", (ev) => {
+    if (ev.target.id === "mod-reason-select" && state.modifyDraft) {
+      state.modifyDraft.reason = ev.target.value;
+    }
+  });
+
+  // High-speed keyboard navigation for busy clinicians
+  document.addEventListener("keydown", (ev) => {
+    if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName || "")) return;
+    if (document.querySelector("dialog[open]")) return;
+
+    if (ev.code === "Space") {
+      ev.preventDefault();
+      executeRouteForPacket(false);
+    } else if (ev.key === "d" || ev.key === "D") {
+      state.wingMode = state.wingMode === "details" ? null : "details";
+      renderAll();
+    } else if (ev.key === "m" || ev.key === "M") {
+      state.wingMode = state.wingMode === "modify" ? null : "modify";
+      if (state.wingMode === "modify") ensureModifyDraft(activePacket());
+      renderAll();
+    } else if (ev.key === "a" || ev.key === "A") {
+      state.wingMode = state.wingMode === "ask" ? null : "ask";
+      renderAll();
     }
   });
 
@@ -1629,7 +1749,7 @@ function bindEvents() {
         state.selectedPacketId = newPkt.packet_id;
       }
       document.getElementById("dialog-intake")?.close();
-      showToast(`Accepted ${data.accepted} synthetic packet(s) through Zero-PHI Gate.`);
+      showToast(`Loaded ${data.accepted} synthetic packet(s).`);
       renderAll();
     } catch (err) {
       fb.style.color = "var(--ink-crit)";

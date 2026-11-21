@@ -457,6 +457,283 @@ class StreamingVOIRouter:
         return np.maximum(0.0, curr_loss - exp_post_loss)
 
 
+def _build_clinical_routing_summary(
+    *,
+    packet: dict[str, Any],
+    ekg_chip: dict[str, Any],
+    sentinels: list[dict[str, Any]],
+    recommendations: list[dict[str, Any]],
+    swarm: dict[str, Any],
+    gate_state: str,
+    unlocked_set: set[str],
+    already_above_tau: bool,
+) -> dict[str, Any]:
+    """Translate engine decisions into zero-jargon ED clinical routing & actionable checks."""
+    enc = packet.get("encounter", {})
+    vitals = enc.get("vitals") or {}
+    evals = enc.get("evals") or {}
+    card = swarm.get("synthesizer") or {}
+    findings = card.get("findings") or []
+
+    sbp = vitals.get("sbp")
+    spo2 = vitals.get("spo2")
+    gcs = vitals.get("gcs")
+
+    # 1. Hard Escalation Banner (matches SDR hard-trigger immediacy)
+    hard_banner: str | None = None
+    if evals.get("d2b") == "missing":
+        hard_banner = "HARD ESCALATION — STEMI on Triage ECG · D2B Cath Activation Missing"
+    elif evals.get("trauma") == "missing" and sbp is not None and float(sbp) < 90:
+        hard_banner = (
+            f"HARD ESCALATION — Hypotensive Shock (SBP {sbp}) · Arrival Trauma Eval Missing"
+        )
+    elif evals.get("neuro") == "missing":
+        hard_banner = "HARD ESCALATION — Acute Focal Deficit · Arrival Stroke / Neuro Eval Missing"
+    elif sbp is not None and float(sbp) < 90:
+        hard_banner = f"HARD ESCALATION — Hemodynamic Instability (SBP {sbp} mmHg)"
+    elif spo2 is not None and float(spo2) < 90:
+        hard_banner = (
+            f"HARD ESCALATION — Acute Hypoxemia (SpO2 {spo2}%) + Respiratory Reserve Threat"
+        )
+    elif gcs is not None and int(gcs) < 15:
+        hard_banner = (
+            f"HARD ESCALATION — Declining Mental Status (GCS {gcs}) + Concealed Chart Risk"
+        )
+    elif any(s["category"] == "HIGH_RISK_MECHANISM_ACTIVITY" for s in sentinels):
+        hard_banner = "HARD ESCALATION — Benign-Appearing Exam with Limb / Ocular / Spine Emergency"
+
+    # 2. Plain-English WHY QUEUED chips (zero Greek letters or model jargon)
+    why_chips: list[str] = []
+    for k_ev, lbl_ev in (
+        ("d2b", "D2B eval missing"),
+        ("trauma", "Trauma eval missing"),
+        ("neuro", "Neuro eval missing"),
+    ):
+        if evals.get(k_ev) == "missing":
+            why_chips.append(lbl_ev)
+
+    for s in sentinels:
+        cat = s["category"]
+        if cat == "ANTICOAGULATED_COAGULOPATHIC":
+            why_chips.append(
+                "Blood thinner on chart (not in triage note)"
+                if not s.get("in_nurse_note")
+                else "Anticoagulated / coagulopathic"
+            )
+        elif cat == "IMMUNOCOMPROMISED":
+            why_chips.append("Immunosuppressed / transplant reserve")
+        elif cat == "HIGH_RISK_MECHANISM_ACTIVITY":
+            why_chips.append("High-energy / surgical mechanism")
+        elif cat == "HIGH_RISK_PMH":
+            why_chips.append(s["summary"].split(";")[0])
+        elif cat == "BOUNCEBACK_FREQUENT_ED":
+            why_chips.append("72h bounceback / repeat ED return")
+        elif cat == "UNEXPLAINED_ABNORMAL_VS":
+            why_chips.append(s["summary"].split(";")[0])
+
+    for f in findings:
+        f_low = f["finding"].lower()
+        if "esbl" in f_low:
+            why_chips.append("Unreviewed ESBL resistant culture")
+        elif "glipizide" in f_low:
+            why_chips.append("Sulfonylurea hypoglycemia risk")
+        elif "hemoglobin" in f_low:
+            why_chips.append(f["finding"].split(" omitted")[0])
+
+    if ekg_chip.get("status") == "pending" and "req_ekg" not in unlocked_set:
+        why_chips.append("Triage ECG pending")
+    if enc.get("outside_hie_available") is False and "ch_hie_outside" not in unlocked_set:
+        why_chips.append("Outside hospital HIE unqueried")
+
+    # Deduplicate while keeping order, cap at 4 chips
+    dedup_chips = list(dict.fromkeys(why_chips))[:4]
+    if not dedup_chips:
+        active_meds = recommendations[4]["value"].get("meds") or []
+        active_ords = recommendations[3]["value"].get("items") or []
+        if active_ords:
+            dedup_chips.append(f"Sign off WR labs ({', '.join(active_ords[:3])})")
+        if active_meds:
+            dedup_chips.append(f"Sign off {', '.join(m.split(' (')[0] for m in active_meds)}")
+        if not dedup_chips:
+            dedup_chips.append("Safe fast-pass — standing care already active")
+
+    # 3. Plain-English IF MISSED / IF WRONG worst-case consequence line
+    if_missed: str | None = None
+    if findings:
+        if_missed = f"{findings[0]['why_now']} ({findings[0]['action']})"
+    elif sentinels:
+        if_missed = sentinels[0]["clinical_why"]
+    elif ekg_chip.get("status") == "pending" and "req_ekg" not in unlocked_set:
+        if_missed = "Unscreened arrhythmia or conduction block if placed in unmonitored waiting room before ECG."
+
+    # 4. Concrete Actionable Checks / Bedside Questions (ONLY shown when immediately actionable!)
+    actionable_queries: list[dict[str, Any]] = []
+    if ekg_chip.get("status") == "pending":
+        actionable_queries.append(
+            {
+                "id": "req_ekg",
+                "kind": "nursing_check",
+                "button_label": "Flag Nurse: Stat Triage ECG",
+                "prompt": "Triage 12-lead ECG not yet recorded for dizziness / cardiopulmonary complaint.",
+                "if_positive_impact": "Screens STEMI, high-grade AV block, or arrhythmia before waitboard.",
+                "completed": "req_ekg" in unlocked_set,
+            }
+        )
+    if enc.get("outside_hie_available") is False and not already_above_tau:
+        actionable_queries.append(
+            {
+                "id": "ch_hie_outside",
+                "kind": "external_fetch",
+                "button_label": "Pull Regional HIE Records",
+                "prompt": "Outside hospital HIE feed disconnected on arrival.",
+                "if_positive_impact": "Checks <72h outside ED visits, CT imaging, and microbiology.",
+                "completed": "ch_hie_outside" in unlocked_set,
+            }
+        )
+
+    finding_by_id = {f["id"]: f for f in findings}
+    for aq in card.get("ask_patient") or []:
+        f_match = finding_by_id.get(aq.get("for_finding"), {})
+        q_id = f"ask_{aq.get('for_finding', 'q')}"
+        actionable_queries.append(
+            {
+                "id": q_id,
+                "kind": "bedside_question",
+                "button_label": "Send to Nurse / Bedside",
+                "prompt": aq["question"],
+                "if_positive_impact": f_match.get("action")
+                or "Confirms exposure timing and acute workup.",
+                "completed": q_id in unlocked_set,
+            }
+        )
+
+    # 5. Headline Decision & Explicit Downstream Station Routing ("What Goes Where")
+    charted_esi = str(enc.get("triage_status", "ESI-3"))
+    prop_esi = str(recommendations[0]["value"]["triage_status"])
+    eval_needs = recommendations[1]["value"].get("needs") or []
+    space_prio = str(recommendations[2]["value"]["priority"])
+    wr_items = recommendations[3]["value"].get("items") or []
+    wr_meds = recommendations[4]["value"].get("meds") or []
+
+    esi_phrase = (
+        f"Upgrade {charted_esi} → {prop_esi}" if prop_esi != charted_esi else f"Keep {prop_esi}"
+    )
+    space_short = {
+        "immediate": "Immediate Resus Bay",
+        "next_bed": "Next Staffed Bed",
+        "bed": "Staffed ED Bed",
+        "hallway": "Monitored Hallway",
+        "fast_track": "Fast Track",
+        "waiting_room": "Waitboard",
+        "defer": "Defer Space",
+    }.get(space_prio, space_prio)
+
+    headline_parts = [esi_phrase, space_short]
+    if eval_needs:
+        headline_parts.append(f"Trigger {'/'.join(x.upper() for x in eval_needs)} Eval")
+    elif wr_items:
+        headline_parts.append(
+            f"Order {', '.join(wr_items[:2])}" + ("+" if len(wr_items) > 2 else "")
+        )
+    elif wr_meds:
+        headline_parts.append(", ".join(m.split(" (")[0] for m in wr_meds))
+    headline_decision = " · ".join(headline_parts)
+
+    routes: list[dict[str, Any]] = []
+    # Station 1: Alert / Resus Team
+    if (
+        eval_needs
+        or prop_esi == "ESI-1"
+        or space_prio == "immediate"
+        or any(s["category"] == "HIGH_RISK_MECHANISM_ACTIVITY" for s in sentinels)
+    ):
+        alert_bits: list[str] = []
+        if eval_needs:
+            alert_bits.append(f"Activate {' & '.join(x.upper() for x in eval_needs)} team")
+        if prop_esi != charted_esi:
+            alert_bits.append(f"Acuity {charted_esi} → {prop_esi}")
+        if card.get("safety_net"):
+            alert_bits.append(card["safety_net"][0]["action"])
+        routes.append(
+            {
+                "station_id": "alert_team",
+                "station_label": "Alert & Resus Team",
+                "summary": " · ".join(alert_bits) or f"Immediate {prop_esi} resuscitation alert",
+                "urgent": True,
+            }
+        )
+
+    # Station 2: Charge Nurse & Bed Board (or Fast Track)
+    iso_tag = f" ({enc['isolation_flag']} Isolation)" if enc.get("isolation_flag") else ""
+    if space_prio in ("fast_track", "waiting_room") and gate_state == "CERTIFIED_SAFE_ROUTINE":
+        routes.append(
+            {
+                "station_id": "fast_track",
+                "station_label": "Fast Track / Waitboard",
+                "summary": f"{prop_esi} → {space_short}",
+                "urgent": False,
+            }
+        )
+    else:
+        routes.append(
+            {
+                "station_id": "bed_board",
+                "station_label": "Charge Nurse & Bed Board",
+                "summary": f"{esi_phrase} → {space_short}{iso_tag}",
+                "urgent": space_prio in ("immediate", "next_bed") or prop_esi != charted_esi,
+            }
+        )
+
+    # Station 3: WR Orders & Pharmacy
+    ord_bits: list[str] = []
+    if wr_items:
+        ord_bits.append(f"Orders: {', '.join(wr_items)}")
+    if wr_meds:
+        ord_bits.append(f"Meds: {', '.join(m.split(' (')[0] for m in wr_meds)}")
+    held_note = recommendations[4].get("rationale", "")
+    if "held" in held_note.lower():
+        held_clause = next(
+            (seg.strip() for seg in held_note.split(".") if "held" in seg.lower()), ""
+        )
+        if held_clause:
+            ord_bits.append(held_clause)
+    if ord_bits:
+        routes.append(
+            {
+                "station_id": "wr_orders",
+                "station_label": "WR Orders & Meds",
+                "summary": " · ".join(ord_bits),
+                "urgent": False,
+            }
+        )
+
+    # Active upstream input channels that contributed signal (drives 3D upstream input beams)
+    active_inputs = ["door_triage"]
+    if any(
+        s["category"] in ("ANTICOAGULATED_COAGULOPATHIC", "IMMUNOCOMPROMISED", "HIGH_RISK_PMH")
+        for s in sentinels
+    ):
+        active_inputs.append("chart_pharmacy")
+    if any(
+        "esbl" in f["finding"].lower()
+        or "hemoglobin" in f["finding"].lower()
+        or "wbc" in f["finding"].lower()
+        or "potassium" in f["finding"].lower()
+        for f in findings
+    ) or any(s["category"] == "BOUNCEBACK_FREQUENT_ED" for s in sentinels):
+        active_inputs.append("labs_micro")
+
+    return {
+        "hard_trigger": {"active": hard_banner is not None, "banner": hard_banner},
+        "why_queued": dedup_chips,
+        "if_missed_risk": if_missed,
+        "headline_decision": headline_decision,
+        "what_happens_next": routes,
+        "actionable_queries": actionable_queries,
+        "active_inputs": active_inputs,
+    }
+
+
 class EDStatisticalSafetyEngine:
     """End-to-end calibrated ED Statistical Safety Engine backing PITM XR & REST endpoints."""
 
@@ -722,6 +999,24 @@ class EDStatisticalSafetyEngine:
             )
         )
 
+        # Determine which Stage-2 channels are already present in the local EHR dossier vs unobserved
+        dos = packet.get("dossier", {})
+        has_local_labs_or_di = bool(dos.get("recent_labs") or dos.get("recent_di"))
+        ask_items = swarm["synthesizer"].get("ask_patient") or []
+        unobserved_channel_ids: set[str] = set()
+        if enc.get("outside_hie_available") is False and "ch_hie_outside" not in unlocked_set:
+            unobserved_channel_ids.add("ch_hie_outside")
+        if (
+            not has_local_labs_or_di
+            and "ch_recent_labs_di" not in unlocked_set
+            and s_cons > self.tau_safe
+        ):
+            unobserved_channel_ids.add("ch_recent_labs_di")
+        if "ch_bedside_ask_probe" not in unlocked_set and (
+            len(ask_items) > 0 or s_cons > self.tau_safe
+        ):
+            unobserved_channel_ids.add("ch_bedside_ask_probe")
+
         # Per-channel Martingale Gauss-Hermite VOI quotes at the Triage Escalation threshold
         channel_quotes: list[dict[str, Any]] = []
         auto_triggered: list[str] = []
@@ -735,7 +1030,8 @@ class EDStatisticalSafetyEngine:
                 )[0]
             )
             net_voi = voi_val - ch.per_patient_query_cost
-            worth_query = bool(voi_val > ch.per_patient_query_cost)
+            is_unobserved = ch.channel_id in unobserved_channel_ids
+            worth_query = bool(is_unobserved and voi_val > ch.per_patient_query_cost)
             if worth_query:
                 auto_triggered.append(ch.channel_id)
             channel_quotes.append(
@@ -746,6 +1042,7 @@ class EDStatisticalSafetyEngine:
                     "voi_expected_gain": round(voi_val, 4),
                     "query_cost": round(ch.per_patient_query_cost, 4),
                     "net_voi": round(net_voi, 4),
+                    "already_in_chart": not is_unobserved or (ch.channel_id in unlocked_set),
                     "trigger_query": worth_query,
                     "unlocked": ch.channel_id in unlocked_set,
                 }
@@ -770,10 +1067,9 @@ class EDStatisticalSafetyEngine:
             # High Risk != High VOI: act immediately in resus/cath/trauma bay without waiting on HIE
             auto_triggered = []
             for cq in channel_quotes:
-                if cq["voi_expected_gain"] < cq["query_cost"]:
-                    cq["trigger_query"] = False
+                cq["trigger_query"] = False
 
-        # Dual Conformal Safe-Gate classification
+        # Dual Conformal Safe-Gate classification (plain clinical copy on gate_label / gate_reason)
         has_missing_eval = any(evals.get(k) == "missing" for k in ("trauma", "neuro", "d2b"))
         delta_findings = swarm["synthesizer"].get("findings") or []
         delta_prio = swarm["synthesizer"].get("priority", "ROUTINE")
@@ -785,37 +1081,49 @@ class EDStatisticalSafetyEngine:
             or s_cons >= tau_triage * 1.35
         ):
             gate_state = "SENTINEL_ESCALATION"
-            gate_label = "Sentinel / Acute Escalation — 1-Pinch Routine Locked"
-            gate_reason = "Non-waivable clinical sentinel, missing arrival evaluation, or elevated calibrated risk requires explicit 5-decision review."
+            gate_label = "Physician Escalation Review Required"
+            gate_reason = "Active clinical sentinel, missing arrival evaluation, or high-acuity presentation — review routed actions below."
             allow_one_pinch = False
         elif (
             s_cons > self.tau_safe
             or p_miss > self.safe_miss_alpha
             or len(delta_findings) > 0
-            or ekg_chip["status"] == "pending"
-            or enc.get("outside_hie_available") is False
+            or (ekg_chip["status"] == "pending" and "req_ekg" not in unlocked_set)
+            or (enc.get("outside_hie_available") is False and "ch_hie_outside" not in unlocked_set)
             or len(auto_triggered) > 0
         ):
             gate_state = "AMBIGUOUS_HOLD_VOI"
-            gate_label = "Ambiguous Overlap — Hold Fast-Pass & Run VOI Pre-Fetch"
+            gate_label = "Hold Fast-Pass · Missing Check or Workup Sign-Off"
             reasons_hold: list[str] = []
-            if ekg_chip["status"] == "pending":
-                reasons_hold.append("indicated triage ECG pending")
+            if ekg_chip["status"] == "pending" and "req_ekg" not in unlocked_set:
+                reasons_hold.append("triage ECG still pending")
             if enc.get("outside_hie_available") is False and "ch_hie_outside" not in unlocked_set:
-                reasons_hold.append("external HIE unverified")
-            if len(auto_triggered) > 0:
-                reasons_hold.append(f"{len(auto_triggered)} Stage-2 channel(s) exceed query cost")
+                reasons_hold.append("outside hospital HIE not yet pulled")
+            if any(r["alert"] for r in recommendations):
+                reasons_hold.append("standing workup / med sign-off needed")
             if not reasons_hold:
-                reasons_hold.append("Stage-1 risk exceeds certified routine cutoff")
-            gate_reason = "Hold 1-pinch fast-pass (" + "; ".join(reasons_hold) + ")."
+                reasons_hold.append("borderline presentation requires brief MD sign-off")
+            gate_reason = "Fast-pass paused: " + "; ".join(reasons_hold) + "."
             allow_one_pinch = False
         else:
             gate_state = "CERTIFIED_SAFE_ROUTINE"
-            gate_label = "Conformal Certified Safe Routine"
-            gate_reason = "Zero sentinels, zero missing door evals, and Stage-1 risk passes conformal miss & FOR Wilson bounds."
+            gate_label = "Safe to Fast-Pass"
+            gate_reason = (
+                "No chart sentinels, no missing door evaluations, and routine pathway verified."
+            )
             allow_one_pinch = True
 
         cfbh_certified = bool(p2 >= self.cfbh_alert_cutoff or p_neg_s2 <= 0.025)
+        clinical_routing = _build_clinical_routing_summary(
+            packet=packet,
+            ekg_chip=ekg_chip,
+            sentinels=sentinels,
+            recommendations=recommendations,
+            swarm=swarm,
+            gate_state=gate_state,
+            unlocked_set=unlocked_set,
+            already_above_tau=already_above_tau,
+        )
 
         return {
             **packet,
@@ -823,6 +1131,7 @@ class EDStatisticalSafetyEngine:
             "sentinels": sentinels,
             "recommendations": recommendations,
             "swarm": swarm,
+            "clinical_routing": clinical_routing,
             "safe_gate": {
                 "gate_state": gate_state,
                 "gate_label": gate_label,
