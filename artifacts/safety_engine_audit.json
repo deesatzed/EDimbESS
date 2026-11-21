@@ -1,0 +1,580 @@
+{
+  "engine_version": "edimbess-0.1.0",
+  "split_hash": "b0eaa72b5b7f1b23a563fd9f376cfd1736988c5d653d0672d94744e7eab0fdac",
+  "cohort_summary": {
+    "n_encounters": 5600,
+    "n_train": 3114,
+    "n_cal": 835,
+    "n_val": 814,
+    "n_test": 837,
+    "natural_prevalence": 0.1243,
+    "stage1_test_auroc": 0.8488,
+    "stage2_test_auroc": 0.9059,
+    "stage2_test_ece": 0.015,
+    "stage2_test_cal_slope": 1.1666
+  },
+  "stage_a_two_phase_discovery": {
+    "n_seeds": 4,
+    "pilot_fraction": 0.15,
+    "mean_neyman_kish_ess": 239.4,
+    "mean_auroc_neyman_15pct": 0.8673,
+    "mean_auroc_srs_15pct": 0.8409,
+    "mean_auroc_full_100pct": 0.8853,
+    "pilot_channel_savings_pct": 85.0,
+    "tost_auroc_vs_full": {
+      "mean_delta": -0.01804571079701789,
+      "corrected_se": 0.0033266932658471853,
+      "margin": 0.015,
+      "ci90_low": -0.025874629087664115,
+      "ci90_high": -0.010216792506371662,
+      "df": 3,
+      "p_noninferiority": 0.7862891576531331,
+      "p_tost_equivalence": 0.7862891576531331,
+      "noninferior_at_05": false,
+      "equivalent_at_05": false
+    },
+    "tost_auprc_vs_full": {
+      "mean_delta": -0.03646971881346439,
+      "corrected_se": 0.001804820268424123,
+      "margin": 0.025,
+      "ci90_low": -0.04071711683956293,
+      "ci90_high": -0.03222232078736585,
+      "df": 3,
+      "p_noninferiority": 0.9960584613515375,
+      "p_tost_equivalence": 0.9960584613515375,
+      "noninferior_at_05": false,
+      "equivalent_at_05": false
+    },
+    "stress_pool_audit": {
+      "sequential_selected_ids": [
+        "ch_hie_outside",
+        "ch_dispense_pdmp"
+      ],
+      "marginal_selected_ids": [
+        "ch_hie_outside",
+        "stress_twin_of_hie",
+        "ch_dispense_pdmp",
+        "ch_social_isolation"
+      ],
+      "sequential_null_selected": 0,
+      "sequential_twin_selected": 0,
+      "sequential_echo_selected": 0,
+      "marginal_twin_or_echo_selected": 1
+    }
+  },
+  "stage_b_streaming_voi_and_conformal": {
+    "voi_vs_top_risk": {
+      "martingale_voi": {
+        "policy": "Martingale_VOI_Autonomous",
+        "queried_rate": 0.5734767025089605,
+        "decision_flip_rate": 0.2174432497013142,
+        "unchanged_queried_rate": 0.35603345280764637,
+        "above_tau_unchanged_queried_rate": 0.24492234169653523,
+        "beneficial_flip_nb_gain_per_1k": 12.544802867383513,
+        "harmful_flip_nb_loss_per_1k": 4.530067702110713,
+        "query_fee_nb_drag_per_1k": 0.8363201911589009,
+        "net_nb_delta_vs_stage1_per_1k": 7.178414974113899
+      },
+      "top_risk_heuristic": {
+        "policy": "Top_Risk_Heuristic_MatchedRate",
+        "queried_rate": 0.5746714456391876,
+        "decision_flip_rate": 0.11469534050179211,
+        "unchanged_queried_rate": 0.45997610513739545,
+        "above_tau_unchanged_queried_rate": 0.45997610513739545,
+        "beneficial_flip_nb_gain_per_1k": 4.679410593389088,
+        "harmful_flip_nb_loss_per_1k": 2.3894862604540026,
+        "query_fee_nb_drag_per_1k": 0.8380625248904819,
+        "net_nb_delta_vs_stage1_per_1k": 1.4518618080446033
+      },
+      "nb_advantage_per_1k_over_top_risk": 5.727
+    },
+    "conformal_fdr_vs_mondrian": {
+      "cfbh_tie_smoothed": {
+        "method": "CfBH",
+        "target_fdr": 0.35,
+        "target_ppv": 0.65,
+        "n_selected": 56,
+        "selection_rate": 0.06690561529271206,
+        "realized_fdp": 0.32142857142857145,
+        "realized_ppv": 0.6785714285714286,
+        "realized_recall": 0.35185185185185186
+      },
+      "mondrian_singleton_pos": {
+        "method": "Mondrian_{1}",
+        "target_fdr": 0.1,
+        "target_ppv": 0.9,
+        "n_selected": 386,
+        "selection_rate": 0.46117084826762245,
+        "realized_fdp": 0.7331606217616581,
+        "realized_ppv": 0.266839378238342,
+        "realized_recall": 0.9537037037037037
+      }
+    },
+    "dual_conformal_safe_gate": {
+      "tau_safe_routine": 0.0268,
+      "target_for_alpha": 0.05,
+      "cal_for_wilson_95_upper": 0.0497,
+      "test_certified_routine_rate": 0.1995,
+      "test_realized_for": 0.006,
+      "test_for_wilson_95": [
+        0.0011,
+        0.0331
+      ]
+    }
+  },
+  "stage_c_subgroup_calibration": {
+    "overall_test": {
+      "n": 837,
+      "prevalence": 0.129,
+      "auroc": 0.9059,
+      "ece": 0.015,
+      "brier": 0.0719,
+      "cal_slope": 1.1666
+    },
+    "female": {
+      "n": 425,
+      "prevalence": 0.1247,
+      "auroc": 0.9072,
+      "ece": 0.0243,
+      "brier": 0.0694,
+      "cal_slope": 1.1971
+    },
+    "male": {
+      "n": 412,
+      "prevalence": 0.1335,
+      "auroc": 0.9037,
+      "ece": 0.0327,
+      "brier": 0.0744,
+      "cal_slope": 1.1376
+    },
+    "older_adults_65p": {
+      "n": 238,
+      "prevalence": 0.2017,
+      "auroc": 0.8887,
+      "ece": 0.0646,
+      "brier": 0.0975,
+      "cal_slope": 1.3109
+    },
+    "walk_in_arrivals": {
+      "n": 658,
+      "prevalence": 0.114,
+      "auroc": 0.8945,
+      "ece": 0.017,
+      "brier": 0.0692,
+      "cal_slope": 1.0825
+    },
+    "minimizing_framing_present": {
+      "n": 127,
+      "prevalence": 0.1024,
+      "auroc": 0.8873,
+      "ece": 0.0478,
+      "brier": 0.0772,
+      "cal_slope": 0.9811
+    },
+    "missing_prior_labs": {
+      "n": 288,
+      "prevalence": 0.0972,
+      "auroc": 0.9445,
+      "ece": 0.0338,
+      "brier": 0.0489,
+      "cal_slope": 1.4056
+    }
+  },
+  "receipt_sha256": "1564f97026b10e415d235f587b8000af7e710857f98844fec6894ba64206faec",
+  "seed_packet_verification": {
+    "n_seed_packets": 22,
+    "all_validator_passed": true,
+    "validator_failures": [],
+    "gate_state_counts": {
+      "SENTINEL_ESCALATION": 17,
+      "AMBIGUOUS_HOLD_VOI": 3,
+      "CERTIFIED_SAFE_ROUTINE": 2
+    },
+    "packets": [
+      {
+        "packet_id": "syn-ED-001",
+        "charted_esi": "ESI-2",
+        "proposed_esi": "ESI-2",
+        "n_sentinels": 0,
+        "delta_priority": "ROUTINE",
+        "n_orthogonal_findings": 0,
+        "distinct_mechanisms": 0,
+        "gate_state": "SENTINEL_ESCALATION",
+        "allow_one_pinch_routine": false,
+        "p1_calibrated": 0.293,
+        "p2_calibrated": 0.054,
+        "bundle_voi": 0.0,
+        "auto_triggered_channels": [],
+        "triage_voi_zero_already_above_tau": true
+      },
+      {
+        "packet_id": "syn-ED-002",
+        "charted_esi": "ESI-3",
+        "proposed_esi": "ESI-3",
+        "n_sentinels": 0,
+        "delta_priority": "ROUTINE",
+        "n_orthogonal_findings": 0,
+        "distinct_mechanisms": 0,
+        "gate_state": "AMBIGUOUS_HOLD_VOI",
+        "allow_one_pinch_routine": false,
+        "p1_calibrated": 0.0225,
+        "p2_calibrated": 0.014,
+        "bundle_voi": 0.0497,
+        "auto_triggered_channels": [
+          "ch_recent_labs_di"
+        ],
+        "triage_voi_zero_already_above_tau": false
+      },
+      {
+        "packet_id": "syn-ED-003",
+        "charted_esi": "ESI-2",
+        "proposed_esi": "ESI-2",
+        "n_sentinels": 2,
+        "delta_priority": "CRITICAL",
+        "n_orthogonal_findings": 2,
+        "distinct_mechanisms": 2,
+        "gate_state": "SENTINEL_ESCALATION",
+        "allow_one_pinch_routine": false,
+        "p1_calibrated": 0.0874,
+        "p2_calibrated": 0.1078,
+        "bundle_voi": 0.1964,
+        "auto_triggered_channels": [
+          "ch_hie_outside",
+          "ch_bedside_ask_probe"
+        ],
+        "triage_voi_zero_already_above_tau": false
+      },
+      {
+        "packet_id": "syn-ED-004",
+        "charted_esi": "ESI-3",
+        "proposed_esi": "ESI-2",
+        "n_sentinels": 2,
+        "delta_priority": "CRITICAL",
+        "n_orthogonal_findings": 2,
+        "distinct_mechanisms": 2,
+        "gate_state": "SENTINEL_ESCALATION",
+        "allow_one_pinch_routine": false,
+        "p1_calibrated": 0.5071,
+        "p2_calibrated": 0.5183,
+        "bundle_voi": 0.0,
+        "auto_triggered_channels": [],
+        "triage_voi_zero_already_above_tau": true
+      },
+      {
+        "packet_id": "syn-ED-005",
+        "charted_esi": "ESI-3",
+        "proposed_esi": "ESI-3",
+        "n_sentinels": 0,
+        "delta_priority": "ROUTINE",
+        "n_orthogonal_findings": 0,
+        "distinct_mechanisms": 0,
+        "gate_state": "AMBIGUOUS_HOLD_VOI",
+        "allow_one_pinch_routine": false,
+        "p1_calibrated": 0.0394,
+        "p2_calibrated": 0.0111,
+        "bundle_voi": 0.4091,
+        "auto_triggered_channels": [
+          "ch_hie_outside",
+          "ch_dispense_pdmp",
+          "ch_micro_cultures",
+          "ch_recent_labs_di",
+          "ch_social_isolation",
+          "ch_bedside_ask_probe"
+        ],
+        "triage_voi_zero_already_above_tau": false
+      },
+      {
+        "packet_id": "syn-ED-006",
+        "charted_esi": "ESI-3",
+        "proposed_esi": "ESI-3",
+        "n_sentinels": 0,
+        "delta_priority": "ROUTINE",
+        "n_orthogonal_findings": 0,
+        "distinct_mechanisms": 0,
+        "gate_state": "AMBIGUOUS_HOLD_VOI",
+        "allow_one_pinch_routine": false,
+        "p1_calibrated": 0.0271,
+        "p2_calibrated": 0.0095,
+        "bundle_voi": 0.1944,
+        "auto_triggered_channels": [
+          "ch_hie_outside",
+          "ch_recent_labs_di",
+          "ch_bedside_ask_probe"
+        ],
+        "triage_voi_zero_already_above_tau": false
+      },
+      {
+        "packet_id": "syn-ED-007",
+        "charted_esi": "ESI-2",
+        "proposed_esi": "ESI-2",
+        "n_sentinels": 2,
+        "delta_priority": "CRITICAL",
+        "n_orthogonal_findings": 2,
+        "distinct_mechanisms": 2,
+        "gate_state": "SENTINEL_ESCALATION",
+        "allow_one_pinch_routine": false,
+        "p1_calibrated": 0.3691,
+        "p2_calibrated": 0.3732,
+        "bundle_voi": 0.0,
+        "auto_triggered_channels": [],
+        "triage_voi_zero_already_above_tau": true
+      },
+      {
+        "packet_id": "syn-ED-008",
+        "charted_esi": "ESI-3",
+        "proposed_esi": "ESI-1",
+        "n_sentinels": 2,
+        "delta_priority": "CRITICAL",
+        "n_orthogonal_findings": 3,
+        "distinct_mechanisms": 3,
+        "gate_state": "SENTINEL_ESCALATION",
+        "allow_one_pinch_routine": false,
+        "p1_calibrated": 0.8122,
+        "p2_calibrated": 0.8749,
+        "bundle_voi": 0.0,
+        "auto_triggered_channels": [],
+        "triage_voi_zero_already_above_tau": true
+      },
+      {
+        "packet_id": "syn-ED-009",
+        "charted_esi": "ESI-2",
+        "proposed_esi": "ESI-2",
+        "n_sentinels": 0,
+        "delta_priority": "ROUTINE",
+        "n_orthogonal_findings": 0,
+        "distinct_mechanisms": 0,
+        "gate_state": "SENTINEL_ESCALATION",
+        "allow_one_pinch_routine": false,
+        "p1_calibrated": 0.0425,
+        "p2_calibrated": 0.0152,
+        "bundle_voi": 0.3492,
+        "auto_triggered_channels": [
+          "ch_hie_outside",
+          "ch_dispense_pdmp",
+          "ch_micro_cultures",
+          "ch_recent_labs_di",
+          "ch_social_isolation",
+          "ch_bedside_ask_probe"
+        ],
+        "triage_voi_zero_already_above_tau": false
+      },
+      {
+        "packet_id": "syn-ED-010",
+        "charted_esi": "ESI-3",
+        "proposed_esi": "ESI-2",
+        "n_sentinels": 1,
+        "delta_priority": "CRITICAL",
+        "n_orthogonal_findings": 2,
+        "distinct_mechanisms": 2,
+        "gate_state": "SENTINEL_ESCALATION",
+        "allow_one_pinch_routine": false,
+        "p1_calibrated": 0.2337,
+        "p2_calibrated": 0.427,
+        "bundle_voi": 0.0207,
+        "auto_triggered_channels": [],
+        "triage_voi_zero_already_above_tau": true
+      },
+      {
+        "packet_id": "syn-ED-011",
+        "charted_esi": "ESI-2",
+        "proposed_esi": "ESI-2",
+        "n_sentinels": 0,
+        "delta_priority": "CRITICAL",
+        "n_orthogonal_findings": 1,
+        "distinct_mechanisms": 1,
+        "gate_state": "SENTINEL_ESCALATION",
+        "allow_one_pinch_routine": false,
+        "p1_calibrated": 0.8746,
+        "p2_calibrated": 0.8874,
+        "bundle_voi": 0.0,
+        "auto_triggered_channels": [],
+        "triage_voi_zero_already_above_tau": true
+      },
+      {
+        "packet_id": "syn-ED-012",
+        "charted_esi": "ESI-4",
+        "proposed_esi": "ESI-4",
+        "n_sentinels": 0,
+        "delta_priority": "ROUTINE",
+        "n_orthogonal_findings": 0,
+        "distinct_mechanisms": 0,
+        "gate_state": "CERTIFIED_SAFE_ROUTINE",
+        "allow_one_pinch_routine": true,
+        "p1_calibrated": 0.0129,
+        "p2_calibrated": 0.008,
+        "bundle_voi": 0.0,
+        "auto_triggered_channels": [],
+        "triage_voi_zero_already_above_tau": false
+      },
+      {
+        "packet_id": "syn-ED-013",
+        "charted_esi": "ESI-3",
+        "proposed_esi": "ESI-2",
+        "n_sentinels": 4,
+        "delta_priority": "CRITICAL",
+        "n_orthogonal_findings": 3,
+        "distinct_mechanisms": 3,
+        "gate_state": "SENTINEL_ESCALATION",
+        "allow_one_pinch_routine": false,
+        "p1_calibrated": 0.2723,
+        "p2_calibrated": 0.6653,
+        "bundle_voi": 0.0121,
+        "auto_triggered_channels": [],
+        "triage_voi_zero_already_above_tau": true
+      },
+      {
+        "packet_id": "syn-ED-014",
+        "charted_esi": "ESI-3",
+        "proposed_esi": "ESI-3",
+        "n_sentinels": 0,
+        "delta_priority": "ROUTINE",
+        "n_orthogonal_findings": 0,
+        "distinct_mechanisms": 0,
+        "gate_state": "CERTIFIED_SAFE_ROUTINE",
+        "allow_one_pinch_routine": true,
+        "p1_calibrated": 0.0099,
+        "p2_calibrated": 0.0081,
+        "bundle_voi": 0.0,
+        "auto_triggered_channels": [],
+        "triage_voi_zero_already_above_tau": false
+      },
+      {
+        "packet_id": "syn-ED-015",
+        "charted_esi": "ESI-3",
+        "proposed_esi": "ESI-3",
+        "n_sentinels": 1,
+        "delta_priority": "CRITICAL",
+        "n_orthogonal_findings": 2,
+        "distinct_mechanisms": 2,
+        "gate_state": "SENTINEL_ESCALATION",
+        "allow_one_pinch_routine": false,
+        "p1_calibrated": 0.0395,
+        "p2_calibrated": 0.0433,
+        "bundle_voi": 0.4095,
+        "auto_triggered_channels": [
+          "ch_hie_outside",
+          "ch_dispense_pdmp",
+          "ch_micro_cultures",
+          "ch_recent_labs_di",
+          "ch_social_isolation",
+          "ch_bedside_ask_probe"
+        ],
+        "triage_voi_zero_already_above_tau": false
+      },
+      {
+        "packet_id": "syn-ED-016",
+        "charted_esi": "ESI-3",
+        "proposed_esi": "ESI-2",
+        "n_sentinels": 1,
+        "delta_priority": "CRITICAL",
+        "n_orthogonal_findings": 1,
+        "distinct_mechanisms": 1,
+        "gate_state": "SENTINEL_ESCALATION",
+        "allow_one_pinch_routine": false,
+        "p1_calibrated": 0.1952,
+        "p2_calibrated": 0.2962,
+        "bundle_voi": 0.0281,
+        "auto_triggered_channels": [],
+        "triage_voi_zero_already_above_tau": true
+      },
+      {
+        "packet_id": "syn-ED-017",
+        "charted_esi": "ESI-3",
+        "proposed_esi": "ESI-2",
+        "n_sentinels": 1,
+        "delta_priority": "CRITICAL",
+        "n_orthogonal_findings": 2,
+        "distinct_mechanisms": 2,
+        "gate_state": "SENTINEL_ESCALATION",
+        "allow_one_pinch_routine": false,
+        "p1_calibrated": 0.2134,
+        "p2_calibrated": 0.2013,
+        "bundle_voi": 0.0248,
+        "auto_triggered_channels": [],
+        "triage_voi_zero_already_above_tau": true
+      },
+      {
+        "packet_id": "syn-ED-018",
+        "charted_esi": "ESI-4",
+        "proposed_esi": "ESI-2",
+        "n_sentinels": 1,
+        "delta_priority": "CRITICAL",
+        "n_orthogonal_findings": 1,
+        "distinct_mechanisms": 1,
+        "gate_state": "SENTINEL_ESCALATION",
+        "allow_one_pinch_routine": false,
+        "p1_calibrated": 0.291,
+        "p2_calibrated": 0.3184,
+        "bundle_voi": 0.0,
+        "auto_triggered_channels": [],
+        "triage_voi_zero_already_above_tau": true
+      },
+      {
+        "packet_id": "syn-ED-019",
+        "charted_esi": "ESI-4",
+        "proposed_esi": "ESI-2",
+        "n_sentinels": 1,
+        "delta_priority": "CRITICAL",
+        "n_orthogonal_findings": 1,
+        "distinct_mechanisms": 1,
+        "gate_state": "SENTINEL_ESCALATION",
+        "allow_one_pinch_routine": false,
+        "p1_calibrated": 0.272,
+        "p2_calibrated": 0.3251,
+        "bundle_voi": 0.0122,
+        "auto_triggered_channels": [],
+        "triage_voi_zero_already_above_tau": true
+      },
+      {
+        "packet_id": "syn-ED-020",
+        "charted_esi": "ESI-3",
+        "proposed_esi": "ESI-2",
+        "n_sentinels": 5,
+        "delta_priority": "CRITICAL",
+        "n_orthogonal_findings": 3,
+        "distinct_mechanisms": 3,
+        "gate_state": "SENTINEL_ESCALATION",
+        "allow_one_pinch_routine": false,
+        "p1_calibrated": 0.1136,
+        "p2_calibrated": 0.7384,
+        "bundle_voi": 0.0773,
+        "auto_triggered_channels": [],
+        "triage_voi_zero_already_above_tau": false
+      },
+      {
+        "packet_id": "syn-ED-021",
+        "charted_esi": "ESI-3",
+        "proposed_esi": "ESI-2",
+        "n_sentinels": 4,
+        "delta_priority": "CRITICAL",
+        "n_orthogonal_findings": 3,
+        "distinct_mechanisms": 3,
+        "gate_state": "SENTINEL_ESCALATION",
+        "allow_one_pinch_routine": false,
+        "p1_calibrated": 0.0963,
+        "p2_calibrated": 0.3996,
+        "bundle_voi": 0.1836,
+        "auto_triggered_channels": [
+          "ch_hie_outside"
+        ],
+        "triage_voi_zero_already_above_tau": false
+      },
+      {
+        "packet_id": "syn-ED-022",
+        "charted_esi": "ESI-3",
+        "proposed_esi": "ESI-2",
+        "n_sentinels": 4,
+        "delta_priority": "CRITICAL",
+        "n_orthogonal_findings": 3,
+        "distinct_mechanisms": 3,
+        "gate_state": "SENTINEL_ESCALATION",
+        "allow_one_pinch_routine": false,
+        "p1_calibrated": 0.4291,
+        "p2_calibrated": 0.6978,
+        "bundle_voi": 0.0,
+        "auto_triggered_channels": [],
+        "triage_voi_zero_already_above_tau": true
+      }
+    ]
+  }
+}

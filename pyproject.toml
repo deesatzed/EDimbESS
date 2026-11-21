@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling>=1.24.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "edimbess"
+version = "0.1.0"
+description = "EDimbESS: Statistical Safety Engine for Provider-in-the-Middle ED Triage XR (Conformal Safe-Gate, Decision-Flip Streaming VOI, Orthogonal Delta Selection, and Neyman Two-Phase Shadow Auditing)"
+readme = "README.md"
+requires-python = ">=3.12,<3.16"
+license = { text = "MIT" }
+dependencies = [
+    "numpy>=1.26.0",
+    "scipy>=1.13.0",
+    "pandas>=2.2.0",
+    "scikit-learn>=1.5.0",
+    "lightgbm>=4.3.0",
+    "pydantic>=2.7.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2.0",
+    "ruff>=0.6.0",
+]
+
+[project.scripts]
+edimbess-server = "edimbess.server:main"
+edimbess-audit = "edimbess.cli_audit:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/edimbess"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.2.0",
+    "ruff>=0.6.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = [".venv", "data", "artifacts"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]

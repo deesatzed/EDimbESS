@@ -1,0 +1,16 @@
+# Virtual environments & build artifacts
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Tooling & OS caches
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+._*
+
+# Runtime mutable decision ledger (keep tracked artifacts/safety_engine_audit.json)
+data/*.jsonl

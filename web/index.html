@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>EDimbESS · Provider-in-the-Middle ED Triage XR &amp; Statistical Safety Engine</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="/styles.css" />
+  <!-- XR Blocks Spatial Runtime Import Map (xrblocks@0.21.1, three@0.184.0) -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/",
+      "@pmndrs/uikit": "https://cdn.jsdelivr.net/npm/@pmndrs/uikit@1.0.64/dist/uikit.js",
+      "@pmndrs/uikit-lucide": "https://cdn.jsdelivr.net/npm/@pmndrs/uikit-lucide@1.0.51/dist/uikit-lucide.js",
+      "yoga-layout": "https://cdn.jsdelivr.net/npm/yoga-layout@3.2.1/dist/src/index.js",
+      "lit": "https://cdn.jsdelivr.net/npm/lit@3.3.1/+esm",
+      "lit/": "https://cdn.jsdelivr.net/npm/lit@3.3.1/",
+      "xrblocks": "https://cdn.jsdelivr.net/npm/xrblocks@0.21.1/build/xrblocks.js",
+      "xrblocks/addons/": "https://cdn.jsdelivr.net/npm/xrblocks@0.21.1/build/addons/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <!-- WebXR / Three.js Spatial Canvas -->
+  <div id="xr-canvas-host" aria-hidden="true"></div>
+
+  <!-- Clinical Daylight Workbench -->
+  <div id="clinical-desk-shell">
+    <header class="top-bar">
+      <div class="brand-group">
+        <div>
+          <h1 class="brand-title">ED Triage · PITM Safety Engine</h1>
+          <p class="brand-sub">Provider-in-the-Middle Now Gate · Conformal Safe-Gate · Martingale VOI · Orthogonal Delta</p>
+        </div>
+        <span class="research-pill" title="Research and simulation environment only. Never enter real patient identifiers.">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+          </svg>
+          Research Only · Synthetic syn-ED · Zero PHI
+        </span>
+      </div>
+
+      <div class="capacity-strip" id="capacity-strip" aria-label="ED treatment space capacity controls">
+        <!-- Populated dynamically from /api/packets capacity -->
+      </div>
+
+      <div class="toolbar-actions">
+        <button type="button" class="btn" id="btn-open-intake">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="17 8 12 3 7 8"></polyline>
+            <line x1="12" y1="3" x2="12" y2="15"></line>
+          </svg>
+          Intake Packet
+        </button>
+        <button type="button" class="btn" id="btn-open-ledger">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="8" y1="13" x2="16" y2="13"></line>
+            <line x1="8" y1="17" x2="16" y2="17"></line>
+          </svg>
+          Shadow Ledger (<span id="ledger-count" class="tabular">0</span>)
+        </button>
+        <button type="button" class="btn btn-primary" id="btn-open-audit">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+          </svg>
+          Statistical Audit Receipt
+        </button>
+      </div>
+    </header>
+
+    <main class="workbench-grid">
+      <!-- Left Rail: Arrival Queue -->
+      <aside class="panel-surface queue-rail" aria-label="Post-triage ED arrival queue">
+        <div class="rail-header">
+          <div class="rail-title-row">
+            <h2 class="rail-title">Post-Triage Queue</h2>
+            <span class="rail-count" id="queue-summary-count">0 arrivals</span>
+          </div>
+          <div class="filter-tabs" role="toolbar" aria-label="Filter queue by Safe-Gate state">
+            <button type="button" class="filter-chip" data-filter="ALL" aria-pressed="true">All</button>
+            <button type="button" class="filter-chip" data-filter="SENTINEL_ESCALATION" aria-pressed="false">Escalation</button>
+            <button type="button" class="filter-chip" data-filter="AMBIGUOUS_HOLD_VOI" aria-pressed="false">Hold · VOI</button>
+            <button type="button" class="filter-chip" data-filter="CERTIFIED_SAFE_ROUTINE" aria-pressed="false">Certified Safe</button>
+            <button type="button" class="filter-chip" data-filter="REVIEWED" aria-pressed="false">Reviewed</button>
+          </div>
+        </div>
+        <div class="queue-list" id="queue-list"></div>
+      </aside>
+
+      <!-- Center Column: The Now Gate -->
+      <section class="now-gate-col" id="now-gate-root" aria-label="Active patient Now Gate">
+        <!-- Populated dynamically by app.js -->
+      </section>
+
+      <!-- Right Rail: Quantitative Statistical Safety & VOI Diagnostics -->
+      <aside class="panel-surface safety-rail" id="safety-rail-root" aria-label="Calibrated risk, conformal bounds, and VOI channel routing">
+        <!-- Populated dynamically by app.js -->
+      </aside>
+    </main>
+  </div>
+
+  <!-- Spatial XR Mode Bar -->
+  <div class="xr-hud-bar">
+    <span class="xr-hud-status" id="xr-engine-status">Calibrating safety engine…</span>
+    <button type="button" class="xr-hud-btn" id="btn-toggle-spatial" aria-pressed="false">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+      </svg>
+      <span id="spatial-btn-label">3D Spatial XR</span>
+    </button>
+  </div>
+
+  <!-- Toast Feedback -->
+  <div class="toast-banner" id="toast-banner" role="status" aria-live="polite" hidden></div>
+
+  <!-- Dialog 1: Zero-PHI Synthetic Packet Intake -->
+  <dialog class="clinical-dialog" id="dialog-intake">
+    <div class="dialog-head">
+      <h2 class="dialog-title">Synthetic Packet Intake (Zero-PHI Gate)</h2>
+      <button type="button" class="btn" data-close-dialog="dialog-intake">Close</button>
+    </div>
+    <div class="dialog-body">
+      <p style="margin-top:0;color:var(--ink-secondary);">
+        Upload or paste synthetic JSON matching <code>syn-ED-###</code>. Any payload containing patient names, dates of birth, MRNs, SSNs, phone numbers, or email addresses is automatically rejected before entering memory.
+      </p>
+      <textarea id="intake-json-input" class="intake-textarea" spellcheck="false"></textarea>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:10px;flex-wrap:wrap;">
+        <button type="button" class="btn" id="btn-load-sample-intake">Load Sample Ambiguous Case (syn-ED-099)</button>
+        <button type="button" class="btn btn-primary" id="btn-submit-intake">Validate &amp; Evaluate Packet</button>
+      </div>
+      <p id="intake-feedback" style="margin:10px 0 0;font-weight:600;"></p>
+    </div>
+  </dialog>
+
+  <!-- Dialog 2: SHA-256 Hash-Chained Shadow Ledger & Two-Phase Neyman Audit -->
+  <dialog class="clinical-dialog" id="dialog-ledger">
+    <div class="dialog-head">
+      <h2 class="dialog-title">SHA-256 Hash-Chained PITM Ledger &amp; Neyman Shadow Audit</h2>
+      <button type="button" class="btn" data-close-dialog="dialog-ledger">Close</button>
+    </div>
+    <div class="dialog-body" id="ledger-dialog-body">
+      Loading ledger…
+    </div>
+  </dialog>
+
+  <!-- Dialog 3: Statistical Safety Engine Full Verification Receipt -->
+  <dialog class="clinical-dialog" id="dialog-audit">
+    <div class="dialog-head">
+      <h2 class="dialog-title">EDimbESS Statistical Safety Engine — Verification Receipt</h2>
+      <button type="button" class="btn" data-close-dialog="dialog-audit">Close</button>
+    </div>
+    <div class="dialog-body" id="audit-dialog-body">
+      Running or retrieving statistical verification audit…
+    </div>
+  </dialog>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
