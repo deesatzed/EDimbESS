@@ -713,7 +713,8 @@ def _build_clinical_routing_summary(
             }
         )
 
-    # Active upstream input channels that contributed signal (drives 3D upstream input beams)
+    # Active upstream input channels that contributed signal (drives 2D Input Rail & 3D Input Beams)
+    dos = packet.get("dossier", {})
     active_inputs = ["door_triage"]
     if any(
         s["category"] in ("ANTICOAGULATED_COAGULOPATHIC", "IMMUNOCOMPROMISED", "HIGH_RISK_PMH")
@@ -729,6 +730,113 @@ def _build_clinical_routing_summary(
     ) or any(s["category"] == "BOUNCEBACK_FREQUENT_ED" for s in sentinels):
         active_inputs.append("labs_micro")
 
+    # 6. Structured Upstream Input Streams (Left of Provider)
+    door_missing = [k.upper() for k in ("trauma", "neuro", "d2b") if evals.get(k) == "missing"]
+    door_done = [k.upper() for k in ("trauma", "neuro", "d2b") if evals.get(k) == "done"]
+    door_status = (
+        "gap"
+        if (door_missing or (ekg_chip.get("status") == "pending" and "req_ekg" not in unlocked_set))
+        else (
+            "alert"
+            if any(
+                s["category"] in ("UNEXPLAINED_ABNORMAL_VS", "HIGH_RISK_MECHANISM_ACTIVITY")
+                for s in sentinels
+            )
+            else "complete"
+        )
+    )
+    meds_clean = [m for m in (dos.get("current_meds") or []) if str(m).lower() != "none recorded"]
+    has_concealed_med = any(
+        s["category"] == "ANTICOAGULATED_COAGULOPATHIC" and not s.get("in_nurse_note")
+        for s in sentinels
+    )
+    chart_status = (
+        "conflict"
+        if has_concealed_med
+        else ("alert" if "chart_pharmacy" in active_inputs else "complete")
+    )
+    hie_gap = enc.get("outside_hie_available") is False and "ch_hie_outside" not in unlocked_set
+    labs_status = "gap" if hie_gap else ("alert" if "labs_micro" in active_inputs else "complete")
+
+    recent_labs = dos.get("recent_labs") or []
+    recent_visits = dos.get("last_ed_visits") or []
+    input_streams = [
+        {
+            "id": "door_triage",
+            "label": "Door & EMS Intake",
+            "status": door_status,
+            "summary": (
+                f"{charted_esi} · {enc.get('arrival_mode', 'walk-in')} · {ekg_chip.get('label', 'EKG N/A')}"
+                + (f" · {', '.join(door_missing)} MISSING" if door_missing else "")
+            ),
+            "detail": enc.get("nurse_hx_summary", ""),
+        },
+        {
+            "id": "chart_pharmacy",
+            "label": "Chart & Pharmacy",
+            "status": chart_status,
+            "summary": (
+                f"{len(meds_clean)} active med(s)"
+                + (f" ({', '.join(meds_clean[:2])})" if meds_clean else "")
+                + f" · {str(dos.get('pmh_summary', 'No PMH')).split('.')[0]}"
+            ),
+            "detail": f"PMH: {dos.get('pmh_summary', '')} | Meds: {', '.join(meds_clean) or 'None'}",
+        },
+        {
+            "id": "labs_micro",
+            "label": "Labs, Micro & HIE",
+            "status": labs_status,
+            "summary": (
+                ("Outside HIE unqueried · " if hie_gap else "")
+                + (
+                    f"{recent_labs[-1]['test']}: {recent_labs[-1]['value']}"
+                    if recent_labs
+                    else "No recent labs"
+                )
+                + (f" · {len(recent_visits)} recent ED visit(s)" if recent_visits else "")
+            ),
+            "detail": " · ".join(f"{lb['test']} {lb['value']} ({lb['when']})" for lb in recent_labs)
+            or "No prior labs on file.",
+        },
+    ]
+
+    # 7. Structured Downstream Output Tasks (Right of Provider: Already Placed vs Remaining/Staged)
+    already_placed: list[str] = []
+    if ekg_chip.get("status") == "done":
+        already_placed.append(f"Triage ECG done ({ekg_chip.get('detail') or 'recorded'})")
+    for d_ev in door_done:
+        already_placed.append(f"Arrival {d_ev} team eval completed at door")
+    wr_existing = list((enc.get("wr_orders") or {}).get("sets") or []) + list(
+        (enc.get("wr_orders") or {}).get("addons") or []
+    )
+    if wr_existing:
+        already_placed.append(f"Door orders active: {', '.join(wr_existing)}")
+    meds_given = list(enc.get("wr_meds_given") or [])
+    if meds_given:
+        already_placed.append(f"Door meds given: {', '.join(meds_given)}")
+
+    staged_tasks: list[dict[str, Any]] = []
+    for r in routes:
+        staged_tasks.append(
+            {
+                "station_id": r["station_id"],
+                "station_label": r["station_label"],
+                "summary": r["summary"],
+                "state": "UNPLACED_URGENT" if r["urgent"] else "UNPLACED_STAGED",
+            }
+        )
+    for q in actionable_queries:
+        if not q["completed"]:
+            staged_tasks.append(
+                {
+                    "station_id": "fast_track",
+                    "station_label": "Remaining Check / Ask-Next",
+                    "summary": f"{q['button_label']}: {q['prompt']}",
+                    "query_id": q["id"],
+                    "state": "CHECK_REMAINING",
+                }
+            )
+
     return {
         "hard_trigger": {"active": hard_banner is not None, "banner": hard_banner},
         "why_queued": dedup_chips,
@@ -737,6 +845,11 @@ def _build_clinical_routing_summary(
         "what_happens_next": routes,
         "actionable_queries": actionable_queries,
         "active_inputs": active_inputs,
+        "input_streams": input_streams,
+        "output_tasks": {
+            "already_placed_at_door": already_placed,
+            "staged_unplaced_tasks": staged_tasks,
+        },
     }
 
 

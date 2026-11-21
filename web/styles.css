@@ -1,5 +1,6 @@
-/* EDimbESS Provider Crossroads & Spatial HITM Stylesheet
-   Zero-jargon rapid clinical workflow in 2D Daylight and 3D Spatial Crossroads XR. */
+/* EDimbESS True Provider-in-the-Middle (PITM) Stylesheet
+   Explicitly visualizes Upstream Inputs (Left) ──▶ Provider Gate (Center) ──▶ Downstream Outputs (Right),
+   distinguishing Already-Placed, Unplaced-Staged, and Queue-Remaining tasks at every moment. */
 
 :root {
   --bg-paper: #F2F5F8;
@@ -214,7 +215,7 @@ textarea {
   color: #FFFFFF;
 }
 
-/* Situational Awareness Strip (Station Routing Counters + Capacity) */
+/* Situational Awareness Strip */
 .situational-strip {
   display: flex;
   flex-wrap: wrap;
@@ -257,7 +258,7 @@ body[data-view-mode="engine"] #crossroads-desk {
   border-radius: 999px;
   border: 1px solid var(--border-strong);
   background: var(--bg-card);
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 650;
   cursor: pointer;
   font-variant-numeric: tabular-nums;
@@ -284,15 +285,6 @@ body[data-view-mode="engine"] #crossroads-desk {
 .dot-bed { background: #2563EB; }
 .dot-orders { background: #D97706; }
 .dot-fast { background: #16A34A; }
-
-.station-count {
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: var(--bg-recessed);
-  color: var(--ink);
-  font-size: 12px;
-  font-weight: 750;
-}
 
 .capacity-strip {
   display: flex;
@@ -335,25 +327,30 @@ body[data-view-mode="engine"] #crossroads-desk {
   cursor: pointer;
 }
 
-/* Mode 1: 2D Provider Crossroads Grid */
-.crossroads-grid {
+/* ==========================================================================
+   Mode 1: True 3-Column PITM Topology (Inputs ──▶ Provider ──▶ Outputs)
+   ========================================================================== */
+.pitm-three-col {
   display: grid;
-  grid-template-columns: 300px minmax(0, 780px);
-  justify-content: center;
-  gap: 18px;
-  padding: 18px 20px 44px;
-  max-width: 1620px;
+  grid-template-columns: 315px minmax(0, 1fr) 365px;
+  gap: 16px;
+  padding: 14px 18px 40px;
+  max-width: 1780px;
   margin: 0 auto;
   align-items: start;
 }
 
-.crossroads-grid.wing-open {
-  grid-template-columns: 290px minmax(0, 1fr) 390px;
+@media (max-width: 1280px) {
+  .pitm-three-col {
+    grid-template-columns: 295px minmax(0, 1fr);
+  }
+  .pitm-col-outputs {
+    grid-column: 1 / -1;
+  }
 }
 
-@media (max-width: 1180px) {
-  .crossroads-grid,
-  .crossroads-grid.wing-open {
+@media (max-width: 900px) {
+  .pitm-three-col {
     grid-template-columns: 1fr;
     padding: 12px;
   }
@@ -365,17 +362,100 @@ body[data-view-mode="engine"] #crossroads-desk {
   border-radius: var(--radius-lg);
 }
 
+.pitm-col-inputs,
+.pitm-col-center,
+.pitm-col-outputs {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.col-flow-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-recessed);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-secondary);
+}
+
+/* Left Column: Active Upstream Input Streams + Queue */
+.inputs-active-card {
+  padding: 12px 13px;
+}
+
+.input-stream-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 8px;
+}
+
+details.input-stream-item {
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+  padding: 8px 10px;
+}
+
+details.input-stream-item.status-conflict,
+details.input-stream-item.status-gap {
+  border-color: var(--border-crit);
+  background: var(--bg-crit);
+}
+
+details.input-stream-item.status-alert {
+  border-color: var(--border-hold);
+  background: var(--bg-hold);
+}
+
+details.input-stream-item > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+details.input-stream-item > summary::-webkit-details-marker {
+  display: none;
+}
+
+.input-stream-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 750;
+}
+
+.input-stream-sum {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--ink-secondary);
+}
+
+.input-stream-detail {
+  margin-top: 7px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--ink);
+}
+
 /* Queue Rail */
 .queue-rail {
   display: flex;
   flex-direction: column;
-  max-height: calc(100vh - 134px);
-  position: sticky;
-  top: 14px;
+  max-height: calc(100vh - 380px);
+  min-height: 290px;
 }
 
 .rail-header {
-  padding: 12px 14px 10px;
+  padding: 11px 13px 9px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -388,7 +468,7 @@ body[data-view-mode="engine"] #crossroads-desk {
 
 .rail-title {
   margin: 0;
-  font-size: 15px;
+  font-size: 14.5px;
   font-weight: 750;
 }
 
@@ -401,7 +481,7 @@ body[data-view-mode="engine"] #crossroads-desk {
 .filter-tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
+  gap: 4px;
   margin-top: 8px;
 }
 
@@ -424,16 +504,16 @@ body[data-view-mode="engine"] #crossroads-desk {
 
 .queue-list {
   overflow-y: auto;
-  padding: 8px;
+  padding: 7px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
 }
 
 .queue-item {
   width: 100%;
   text-align: left;
-  padding: 9px 11px;
+  padding: 8px 10px;
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
   background: var(--bg-card);
@@ -469,7 +549,7 @@ body[data-view-mode="engine"] #crossroads-desk {
 }
 
 .q-chief {
-  margin: 3px 0 6px;
+  margin: 2px 0 5px;
   font-size: 13px;
   font-weight: 650;
 }
@@ -504,16 +584,16 @@ body[data-view-mode="engine"] #crossroads-desk {
 .badge-gate-crit { background: var(--bg-crit); color: var(--ink-crit); border-color: var(--border-crit); }
 .badge-neutral { background: var(--bg-subtle); color: var(--ink-secondary); border-color: var(--border); }
 
-/* Center Crossroads Card (2D) */
+/* Center Column: Provider Decision Gate */
 .now-card {
   overflow: hidden;
 }
 
 .hard-trigger-banner {
-  padding: 11px 18px;
+  padding: 10px 18px;
   background: #B91C1C;
   color: #FFFFFF;
-  font-size: 14.5px;
+  font-size: 14px;
   font-weight: 750;
   display: flex;
   align-items: center;
@@ -522,10 +602,10 @@ body[data-view-mode="engine"] #crossroads-desk {
 }
 
 .now-card-body {
-  padding: 18px 20px;
+  padding: 16px 18px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 11px;
 }
 
 .route-header-row {
@@ -547,7 +627,7 @@ body[data-view-mode="engine"] #crossroads-desk {
 
 .patient-headline {
   margin: 0;
-  font-size: 19px;
+  font-size: 18.5px;
   font-weight: 750;
   letter-spacing: -0.01em;
 }
@@ -555,7 +635,7 @@ body[data-view-mode="engine"] #crossroads-desk {
 .vitals-inline-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 7px;
+  gap: 6px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -598,7 +678,7 @@ body[data-view-mode="engine"] #crossroads-desk {
   background: #F4ECE1;
   border: 1px solid #D9C3A9;
   color: #5E3B14;
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 650;
 }
 
@@ -620,15 +700,15 @@ body[data-view-mode="engine"] #crossroads-desk {
 }
 
 .decision-call-box {
-  padding: 13px 15px;
+  padding: 12px 14px;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-strong);
   background: var(--bg-subtle);
 }
 
 .decision-call-title {
-  margin: 0 0 8px;
-  font-size: 18px;
+  margin: 0 0 6px;
+  font-size: 17px;
   font-weight: 800;
   color: var(--ink);
 }
@@ -639,7 +719,7 @@ body[data-view-mode="engine"] #crossroads-desk {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
   font-size: 13px;
 }
 
@@ -661,7 +741,7 @@ body[data-view-mode="engine"] #crossroads-desk {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding-top: 6px;
+  padding-top: 4px;
 }
 
 .primary-btn-cluster,
@@ -671,46 +751,69 @@ body[data-view-mode="engine"] #crossroads-desk {
   gap: 8px;
 }
 
-/* Zero-Typing Modify Sheet & Contextual Side Wing */
-.crossroads-side-wing {
-  padding: 16px;
-  position: sticky;
-  top: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.inline-drawer-box {
+  margin-top: 6px;
+  padding: 13px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-subtle);
 }
 
-.wing-head {
+.drawer-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--border);
+  margin-bottom: 10px;
 }
 
-.wing-title {
+.drawer-title {
   margin: 0;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 750;
 }
 
-.ask-card {
-  padding: 11px 12px;
-  border-radius: var(--radius-md);
+.query-row {
+  padding: 9px 11px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border);
-  background: var(--bg-subtle);
+  background: var(--bg-card);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
+  margin-bottom: 7px;
+  font-size: 12.5px;
+}
+
+.query-row:last-child {
+  margin-bottom: 0;
+}
+
+.section-title-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.section-title-bar h2,
+.section-title-bar h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.outputs-divider {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 4px 0;
 }
 
 .pill-picker-group {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-bottom: 10px;
+  margin-bottom: 9px;
 }
 
 .pill-picker-row {
@@ -724,7 +827,7 @@ body[data-view-mode="engine"] #crossroads-desk {
   border-radius: 999px;
   border: 1px solid var(--border-strong);
   background: var(--bg-card);
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 650;
   cursor: pointer;
 }
@@ -735,8 +838,94 @@ body[data-view-mode="engine"] #crossroads-desk {
   color: #FFFFFF;
 }
 
+/* Right Column: Downstream Outputs & Remaining Tasks (Always Visible!) */
+.outputs-card {
+  padding: 13px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.output-task-row {
+  padding: 9px 11px;
+  border-radius: var(--radius-md);
+  font-size: 12.5px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Dashed border = UNPLACED / REMAINING task awaiting provider release or check! */
+.output-task-row.unplaced {
+  border: 1.5px dashed var(--border-hold);
+  background: #FFFDF7;
+}
+
+.output-task-row.unplaced-urgent {
+  border: 1.5px dashed var(--border-crit);
+  background: var(--bg-crit);
+}
+
+/* Solid green border = PLACED / ALREADY ACTIVE task */
+.output-task-row.placed {
+  border: 1px solid var(--border-safe);
+  background: var(--bg-safe);
+}
+
+.station-backlog-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+  padding: 9px 11px;
+}
+
+.station-backlog-card > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.station-backlog-card > summary::-webkit-details-marker {
+  display: none;
+}
+
+.backlog-bar-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--bg-recessed);
+  overflow: hidden;
+  margin-top: 6px;
+  display: flex;
+}
+
+.backlog-bar-placed {
+  background: #1B6E3A;
+  height: 100%;
+}
+
+.backlog-bar-rem {
+  background: #D97706;
+  height: 100%;
+}
+
+.rem-jump-btn {
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  margin-top: 5px;
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--border-strong);
+  background: var(--bg-card);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.rem-jump-btn:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
 /* ==========================================================================
-   Mode 2: 3D Spatial XR Crossroads (SDR-Inspired Immersive Arena)
+   Mode 2: 3D Spatial XR Crossroads
    ========================================================================== */
 #spatial-stage-wrap {
   position: relative;
@@ -761,14 +950,13 @@ body[data-view-mode="engine"] #crossroads-desk {
   height: 100%;
 }
 
-/* Top Floating Throughput & Live Routing Board */
 .xr-top-board {
   position: absolute;
   top: 12px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 15;
-  width: min(650px, 92vw);
+  width: min(690px, 92vw);
   padding: 10px 15px;
   border-radius: 14px;
   background: rgba(36, 44, 58, 0.88);
@@ -795,7 +983,7 @@ body[data-view-mode="engine"] #crossroads-desk {
 }
 
 .xr-stat strong {
-  font-size: 15px;
+  font-size: 14.5px;
   color: #FFFFFF;
 }
 
@@ -809,7 +997,7 @@ body[data-view-mode="engine"] #crossroads-desk {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  max-height: 82px;
+  max-height: 76px;
   overflow-y: auto;
   font-size: 12px;
 }
@@ -822,17 +1010,16 @@ body[data-view-mode="engine"] #crossroads-desk {
   color: #E2E8F0;
 }
 
-/* Three-Panel Spatial Cockpit at Hand/Eye Level */
 .xr-cockpit-row {
   position: absolute;
-  bottom: 42px;
-  left: 18px;
-  right: 18px;
+  bottom: 40px;
+  left: 16px;
+  right: 16px;
   z-index: 20;
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  gap: 18px;
+  gap: 16px;
   pointer-events: none;
 }
 
@@ -847,16 +1034,16 @@ body[data-view-mode="engine"] #crossroads-desk {
 }
 
 .xr-center-card {
-  width: min(600px, 94vw);
+  width: min(580px, 94vw);
   overflow: hidden;
 }
 
 .xr-wing {
-  width: 320px;
-  max-height: 360px;
+  width: 315px;
+  max-height: 365px;
   overflow-y: auto;
-  padding: 13px 15px;
-  font-size: 12.5px;
+  padding: 12px 14px;
+  font-size: 12px;
 }
 
 .xr-wing-left {
@@ -867,17 +1054,15 @@ body[data-view-mode="engine"] #crossroads-desk {
   transform: perspective(1100px) rotateY(-12deg);
 }
 
-@media (max-width: 1240px) {
+@media (max-width: 1260px) {
+  .xr-wing-left,
   .xr-wing-right {
     display: none;
-  }
-  .xr-wing-left {
-    transform: none;
   }
 }
 
 .xr-card-inner {
-  padding: 14px 17px;
+  padding: 13px 16px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -921,15 +1106,15 @@ body[data-view-mode="engine"] #crossroads-desk {
 }
 
 .xr-plan-call {
-  margin: 2px 0;
-  font-size: 17px;
+  margin: 0 0 3px;
+  font-size: 16px;
   font-weight: 800;
   color: #FFFFFF;
 }
 
 .xr-next-green {
   color: #86EFAC;
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 600;
   margin: 0;
 }
@@ -937,17 +1122,47 @@ body[data-view-mode="engine"] #crossroads-desk {
 .xr-upnext-item {
   width: 100%;
   text-align: left;
-  padding: 8px 10px;
-  margin-top: 6px;
-  border-radius: 10px;
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  background: rgba(15, 23, 42, 0.55);
+  padding: 7px 9px;
+  margin-top: 5px;
+  border-radius: 9px;
+  border: 1px dashed rgba(251, 191, 36, 0.45);
+  background: rgba(15, 23, 42, 0.58);
   color: #F8FAFC;
   cursor: pointer;
 }
 
 .xr-upnext-item:hover {
   border-color: #7DD3FC;
+}
+
+.xr-io-row {
+  padding: 7px 9px;
+  margin-top: 6px;
+  border-radius: 9px;
+  border: 1px solid rgba(148, 163, 184, 0.34);
+  background: rgba(15, 23, 42, 0.62);
+  color: #F8FAFC;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.xr-io-row.unplaced {
+  border-style: dashed;
+  border-color: rgba(251, 191, 36, 0.68);
+}
+
+.xr-io-row.unplaced-urgent {
+  border-style: dashed;
+  border-color: rgba(248, 113, 113, 0.8);
+  background: rgba(127, 29, 29, 0.38);
+}
+
+.xr-io-row.placed {
+  border-style: solid;
+  border-color: rgba(74, 222, 128, 0.62);
+  background: rgba(20, 83, 45, 0.36);
 }
 
 .xr-bottom-controls {
@@ -974,9 +1189,7 @@ body[data-view-mode="engine"] #crossroads-desk {
   cursor: pointer;
 }
 
-/* ==========================================================================
-   Mode 3: Statistical Engine Research View
-   ========================================================================== */
+/* Mode 3: Statistical Engine Research View */
 .engine-grid {
   max-width: 1280px;
   margin: 0 auto;
@@ -1039,7 +1252,6 @@ body[data-view-mode="engine"] #crossroads-desk {
   border-color: #B4CCE3;
 }
 
-/* Dialogs & Toast */
 dialog.clinical-dialog {
   width: min(860px, 94vw);
   max-height: 88vh;

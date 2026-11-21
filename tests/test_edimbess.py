@@ -410,11 +410,31 @@ def test_seed_packets_safe_gate_and_voi_classifications(
         assert evaluated[safe_id]["safe_gate"]["allow_one_pinch_routine"] is True
         assert evaluated[safe_id]["voi_routing"]["auto_triggered_channels"] == []
 
-    # Every packet carries explicit clinician-first routing destinations & zero-jargon why_queued
+    # Every packet carries explicit PITM inputs + outputs & zero-jargon why_queued
     for pkt in evaluated.values():
         cr = pkt["clinical_routing"]
         assert len(cr["why_queued"]) >= 1
         assert len(cr["what_happens_next"]) >= 1
+        assert len(cr["input_streams"]) == 3
+        assert {s["id"] for s in cr["input_streams"]} == {
+            "door_triage",
+            "chart_pharmacy",
+            "labs_micro",
+        }
+        assert "already_placed_at_door" in cr["output_tasks"]
+        assert len(cr["output_tasks"]["staged_unplaced_tasks"]) >= 1
+
+    # Flagship syn-ED-022: only Wrist X-ray placed at door while systemic acuity/labs/checks remain unplaced
+    flag_cr = evaluated["syn-ED-022"]["clinical_routing"]
+    stream_map = {s["id"]: s for s in flag_cr["input_streams"]}
+    assert stream_map["chart_pharmacy"]["status"] == "conflict"
+    assert flag_cr["output_tasks"]["already_placed_at_door"] == ["Door orders active: Wrist X-ray"]
+    assert len(flag_cr["output_tasks"]["staged_unplaced_tasks"]) >= 4
+
+    # syn-ED-006 (dizziness, pending ECG): 0 placed at door, unplaced outputs + checks remain visible
+    amb_out = evaluated["syn-ED-006"]["clinical_routing"]["output_tasks"]
+    assert amb_out["already_placed_at_door"] == []
+    assert len(amb_out["staged_unplaced_tasks"]) >= 2
 
     # Ambiguous dizziness with pending EKG & missing HIE holds fast-pass & surfaces named checks
     amb = evaluated["syn-ED-006"]
@@ -507,7 +527,9 @@ def test_http_api_and_hash_chained_ledger_roundtrip(
     st_root, ctype_root, html_bytes = _dispatch_raw_http(handler_cls, "/")
     assert st_root == 200
     assert "text/html" in ctype_root
-    assert "ED Triage · PITM Crossroads" in html_bytes.decode("utf-8")
+    html_text = html_bytes.decode("utf-8")
+    assert "ED Triage · Provider-in-the-Middle" in html_text
+    assert "pitm-three-col" in html_text
 
     st_h, health = _http_json(handler_cls, "/api/health")
     assert st_h == 200 and health["status"] == "ok"

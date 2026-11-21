@@ -19,8 +19,8 @@
   <header class="top-bar">
     <div class="brand-group">
       <div>
-        <h1 class="brand-title">ED Triage · PITM Crossroads</h1>
-        <p class="brand-sub">Provider-in-the-Middle Decision Router · Synthetic Research Environment · Zero PHI</p>
+        <h1 class="brand-title">ED Triage · Provider-in-the-Middle</h1>
+        <p class="brand-sub">Upstream Inputs → Provider Decision Gate → Downstream Outputs &amp; Remaining Tasks · Zero PHI</p>
       </div>
     </div>
 
@@ -31,7 +31,7 @@
           <polyline points="9 11 12 14 22 4"></polyline>
           <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
         </svg>
-        Provider Crossroads
+        PITM Crossroads
       </button>
       <button type="button" role="tab" class="mode-tab" data-view-tab="spatial" aria-selected="false">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -67,55 +67,60 @@
     </div>
   </header>
 
-  <!-- Situational Awareness Strip: Live Station Routing Counters + ED Capacity (Visible in 2D Modes) -->
-  <section class="situational-strip" id="situational-strip" aria-label="Department routing and bed capacity">
+  <!-- Situational Awareness Strip: Station Placed + Remaining Counters + ED Capacity -->
+  <section class="situational-strip" id="situational-strip" aria-label="Department output pipeline and bed capacity">
     <div class="routed-stations-bar" id="routed-stations-bar"></div>
     <div class="capacity-strip" id="capacity-strip"></div>
   </section>
 
-  <!-- Mode 1: 2D Provider Crossroads (Clean, Fast, Zero Math Jargon) -->
-  <main id="crossroads-desk" class="crossroads-grid" aria-label="Provider Crossroads workspace">
-    <aside class="panel-surface queue-rail" aria-label="Up Next ED arrival queue">
-      <div class="rail-header">
-        <div class="rail-title-row">
-          <h2 class="rail-title">Up Next</h2>
-          <span class="rail-count" id="queue-summary-count">0 queued</span>
+  <!-- Mode 1: True 3-Column PITM Topology (Inputs ──▶ Provider Gate ──▶ Outputs & Remaining Tasks) -->
+  <main id="crossroads-desk" class="pitm-three-col" aria-label="Provider-in-the-Middle workspace">
+    <!-- LEFT COLUMN: UPSTREAM INPUTS (Active Patient Input Streams + Incoming Arrival Queue) -->
+    <aside class="pitm-col-inputs" aria-label="Upstream inputs and arrival queue">
+      <section class="panel-surface inputs-active-card" id="active-inputs-root"></section>
+
+      <section class="panel-surface queue-rail">
+        <div class="rail-header">
+          <div class="rail-title-row">
+            <h2 class="rail-title">Incoming Queue</h2>
+            <span class="rail-count" id="queue-summary-count">0 remaining</span>
+          </div>
+          <div class="filter-tabs" role="toolbar" aria-label="Filter arrivals">
+            <button type="button" class="filter-chip" data-filter="PENDING" aria-pressed="true">Remaining</button>
+            <button type="button" class="filter-chip" data-filter="HARD_TRIGGER" aria-pressed="false">Hard Trigger</button>
+            <button type="button" class="filter-chip" data-filter="CERTIFIED_SAFE_ROUTINE" aria-pressed="false">Fast-Pass</button>
+            <button type="button" class="filter-chip" data-filter="REVIEWED" aria-pressed="false">Placed</button>
+            <button type="button" class="filter-chip" data-filter="ALL" aria-pressed="false">All</button>
+          </div>
         </div>
-        <div class="filter-tabs" role="toolbar" aria-label="Filter arrivals">
-          <button type="button" class="filter-chip" data-filter="PENDING" aria-pressed="true">Pending</button>
-          <button type="button" class="filter-chip" data-filter="HARD_TRIGGER" aria-pressed="false">Hard Trigger</button>
-          <button type="button" class="filter-chip" data-filter="CERTIFIED_SAFE_ROUTINE" aria-pressed="false">Fast-Pass</button>
-          <button type="button" class="filter-chip" data-filter="REVIEWED" aria-pressed="false">Routed</button>
-          <button type="button" class="filter-chip" data-filter="ALL" aria-pressed="false">All</button>
-        </div>
-      </div>
-      <div class="queue-list" id="queue-list"></div>
+        <div class="queue-list" id="queue-list"></div>
+      </section>
     </aside>
 
-    <!-- Center: The One Crossroads Now Card -->
-    <section class="crossroads-center" id="crossroads-now-root" aria-label="Active patient decision card"></section>
+    <!-- CENTER COLUMN: PROVIDER IN THE MIDDLE (Decision Gate) -->
+    <section class="pitm-col-center" id="crossroads-now-root" aria-label="Provider-in-the-Middle Decision Gate"></section>
 
-    <!-- Right Contextual Wing (Opens on Ask-Next, Details, Modify, or Station Click) -->
-    <aside class="panel-surface crossroads-side-wing" id="crossroads-wing-root" hidden aria-label="Contextual detail or Ask-Next panel"></aside>
+    <!-- RIGHT COLUMN: DOWNSTREAM OUTPUTS (Always Visible: Unplaced/Staged + Door Active + Queue Remaining) -->
+    <aside class="pitm-col-outputs" id="outputs-pipeline-root" aria-label="Downstream outputs and remaining tasks"></aside>
   </main>
 
-  <!-- Mode 2: 3D Spatial XR Crossroads (SDR-Inspired Immersive Routing Arena) -->
+  <!-- Mode 2: 3D Spatial XR Crossroads (Inputs Arc ──▶ Provider Gate ──▶ Outputs Arc with Placed + Remaining) -->
   <section id="spatial-stage-wrap" aria-label="3D Spatial Decision Crossroads" hidden>
     <div id="xr-canvas-host"></div>
 
-    <!-- Top Floating Throughput & Live Routing Board -->
+    <!-- Top Floating Throughput & Live Pipeline Board -->
     <div class="xr-top-board" id="xr-top-board"></div>
 
-    <!-- Three-Panel Spatial Cockpit (Left Wing · Center NOW Card · Right Up-Next Wing) -->
+    <!-- Three-Panel Spatial Cockpit (Left Inputs Wing · Center Provider Card · Right Outputs & Remaining Wing) -->
     <div class="xr-cockpit-row">
-      <aside class="xr-wing xr-wing-left" id="xr-left-wing" hidden></aside>
+      <aside class="xr-wing xr-wing-left" id="xr-left-wing"></aside>
       <section class="xr-center-card" id="xr-center-card"></section>
       <aside class="xr-wing xr-wing-right" id="xr-right-wing"></aside>
     </div>
 
     <!-- Subtle Bottom Spatial Controls -->
     <div class="xr-bottom-controls">
-      <span>Click any 3D queue sphere or station orb · Drag upper space to orbit · Spacebar = Approve &amp; Route</span>
+      <span>Left = Upstream Inputs · Center = Provider Gate · Right = Outputs (Placed &amp; Remaining) · Spacebar = Route</span>
       <div style="display:flex;gap:8px;">
         <button type="button" class="xr-mini-btn" id="btn-reset-camera">Reset View</button>
         <button type="button" class="xr-mini-btn" id="btn-enter-webxr" hidden>Enter WebXR Headset</button>
@@ -123,7 +128,7 @@
     </div>
   </section>
 
-  <!-- Mode 3: Statistical Safety Engine Workbench (For Researchers & Calibration Auditing) -->
+  <!-- Mode 3: Statistical Safety Engine Workbench -->
   <section id="engine-workbench-wrap" class="engine-grid" hidden aria-label="Statistical Safety Engine research view"></section>
 
   <!-- Toast Feedback -->
